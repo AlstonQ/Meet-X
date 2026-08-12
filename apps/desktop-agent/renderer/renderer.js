@@ -13,6 +13,7 @@ const elements = {
   screenVideo: document.getElementById("screenVideo"),
   displaySourcePicker: document.getElementById("displaySourcePicker"),
   displaySource: document.getElementById("displaySource"),
+  displaySourceGrid: document.getElementById("displaySourceGrid"),
   refreshSourcesButton: document.getElementById("refreshSourcesButton"),
   disclosureAcknowledged: document.getElementById("disclosureAcknowledged"),
   transcriptionMode: document.getElementById("transcriptionMode"),
@@ -141,7 +142,7 @@ function renderDisplaySources(sources, currentSourceId) {
     card.addEventListener("click", () => selectDisplaySource(source.id));
     elements.displaySourceGrid.append(card);
   }
-  selectDisplaySource(selectedSource);
+  if (selectedSource) selectDisplaySource(selectedSource);
 }
 
 async function loadDisplaySources() {
@@ -189,7 +190,7 @@ function updateStartAvailability() {
 function updateTranscriptionModeUI() {
   const isLive = elements.transcriptionMode.value === "live";
   elements.transcriptionHelp.textContent = isLive
-    ? "Rolling local Whisper transcription appears here and on the Live meetings web page, usually 10â€“20 seconds behind."
+    ? "Rolling local Whisper transcription appears here and on the Live meetings web page, usually 10-20 seconds behind."
     : "The full recording is transcribed after upload. This is slower but gives Whisper the most context.";
   elements.stopButton.textContent = isLive ? "Stop & save" : "Stop & process";
   if (!recordingSessionId) elements.liveTranscriptPanel.classList.add("hidden");
@@ -283,10 +284,10 @@ function updateLiveBadge() {
     elements.liveTranscriptBadge.textContent = "Fallback available";
     elements.liveTranscriptBadge.className = "warning";
   } else if (livePending > 0) {
-    elements.liveTranscriptBadge.textContent = "Transcribing Â· " + livePending + " queued";
+    elements.liveTranscriptBadge.textContent = "Transcribing - " + livePending + " queued";
     elements.liveTranscriptBadge.className = "working";
   } else {
-    elements.liveTranscriptBadge.textContent = "Live Â· listening";
+    elements.liveTranscriptBadge.textContent = "Live - listening";
     elements.liveTranscriptBadge.className = "";
   }
 }
@@ -380,7 +381,7 @@ function stopCurrentLiveChunk() {
 
 async function detectMeeting() {
   elements.detectButton.disabled = true;
-  elements.detectButton.textContent = "Detectingâ€¦";
+  elements.detectButton.textContent = "Detecting...";
   try {
     const result = await window.meetxDesktop.detectMeetings();
     const candidate = result.candidates && result.candidates[0];
@@ -392,7 +393,7 @@ async function detectMeeting() {
     }
     elements.detectedMeeting.className = "detected";
     elements.detectedMeeting.querySelector("strong").textContent = candidate.sourceApp;
-    elements.detectedMeeting.querySelector("p").textContent = candidate.title + " Â· " + candidate.reason;
+    elements.detectedMeeting.querySelector("p").textContent = candidate.title + " - " + candidate.reason;
     if (!elements.meetingTitle.value.trim() || elements.meetingTitle.value === detectedTitle) {
       elements.meetingTitle.value = candidate.title;
       detectedTitle = candidate.title;
@@ -411,7 +412,7 @@ async function detectMeeting() {
 async function initialize() {
   try {
     const status = await window.meetxDesktop.getStatus();
-    elements.apiPill.textContent = status.apiAvailable ? "SaaS connected" : "SaaS offline Â· local save active";
+    elements.apiPill.textContent = status.apiAvailable ? "SaaS connected" : "SaaS offline - local save active";
     elements.apiPill.className = "pill " + (status.apiAvailable ? "ok" : "bad");
     if (!status.systemAudioAvailable) {
       elements.systemAudio.checked = false;
@@ -436,14 +437,14 @@ async function startRecording() {
   elements.openLiveButton.classList.add("hidden");
   elements.liveUrl.textContent = "";
   livePageUrl = "";
-  setStatus("", "Preparing capture", "Connecting to selected Windows audio and screen sourcesâ€¦");
+  setStatus("", "Preparing capture", "Connecting to selected Windows audio and screen sources...");
   try {
     const started = await window.meetxDesktop.beginCapture(input);
     recordingSessionId = started.sessionId;
     livePageUrl = started.liveUrl || "";
     if (livePageUrl) {
       elements.openLiveButton.classList.remove("hidden");
-      elements.liveUrl.textContent = "Shared live page: " + livePageUrl + " Â· On another device, open /live on this Meet-X server.";
+      elements.liveUrl.textContent = "Shared live page: " + livePageUrl + " - On another device, open /live on this Meet-X server.";
     }
 
     const audioTracks = [];
@@ -560,7 +561,7 @@ async function finalizeRecording() {
   timerHandle = null;
   elements.pauseButton.disabled = true;
   elements.stopButton.disabled = true;
-  setStatus("", "Saving recording", "Finalizing local media before uploadâ€¦");
+  setStatus("", "Saving recording", "Finalizing local media before upload...");
 
   try {
     await stopCurrentLiveChunk();
@@ -569,7 +570,7 @@ async function finalizeRecording() {
     if (audioContext) await audioContext.close();
     audioContext = null;
     if (elements.transcriptionMode.value === "live") {
-      setStatus("", "Finishing live transcript", livePending > 0 ? "Waiting for " + livePending + " queued Whisper chunk(s)â€¦" : "Saving live transcript and summaryâ€¦");
+      setStatus("", "Finishing live transcript", livePending > 0 ? "Waiting for " + livePending + " queued Whisper chunk(s)..." : "Saving live transcript and summary...");
       await liveQueue;
     }
 
@@ -632,6 +633,7 @@ elements.detectButton.addEventListener("click", detectMeeting);
 elements.disclosureAcknowledged.addEventListener("change", updateStartAvailability);
 elements.systemAudio.addEventListener("change", updateStartAvailability);
 elements.microphone.addEventListener("change", updateStartAvailability);
+elements.refreshSourcesButton.addEventListener("click", loadDisplaySources);
 elements.screenVideo.addEventListener("change", async () => {
   elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
   if (elements.screenVideo.checked) await loadDisplaySources();

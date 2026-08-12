@@ -1,4 +1,4 @@
-﻿import { Body, Controller, Get, Header, Headers, Post, Res } from "@nestjs/common";
+import { Body, Controller, Get, Header, Headers, Post, Res } from "@nestjs/common";
 import type { ServerResponse } from "node:http";
 
 const sessionCookieName = "meetx_session";
@@ -63,7 +63,7 @@ export function requirePrototypeSession(cookieHeader: string | undefined): Proto
   };
 }
 
-export function renderSaasShell(input: { title: string; active: "dashboard" | "library" | "live" | "recorder" | "settings" | "billing"; session: PrototypeSession; body: string }): string {
+export function renderSaasShell(input: { title: string; active: "dashboard" | "library" | "recorder" | "settings" | "billing"; session: PrototypeSession; body: string }): string {
   const navItem = (href: string, label: string, active: boolean): string => `<a class="nav ${active ? "active" : ""}" href="${href}">${label}</a>`;
   return `<!doctype html>
 <html lang="en">
@@ -72,7 +72,7 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f5f5f7" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>${escapeHtml(input.title)} � Meet-X</title>
+    <title>${escapeHtml(input.title)} - Meet-X</title>
     <style>
       :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, "Segoe UI", sans-serif; color: #1d1d1f; background: #f5f5f7; --ink:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.08); --panel:rgba(255,255,255,.78); --panel-strong:#fff; --accent:#0071e3; --accent-soft:#e8f2ff; --green:#24c58f; }
       * { box-sizing: border-box; }
@@ -132,7 +132,6 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
         <div class="workspace"><strong>${escapeHtml(input.session.organization)}</strong><small>${escapeHtml(input.session.email)}</small></div>
         ${navItem("/app", "Dashboard", input.active === "dashboard")}
         ${navItem("/library", "Meeting library", input.active === "library")}
-        ${navItem("/live", "Live meetings", input.active === "live")}
         ${navItem("/recorder", "Recorder", input.active === "recorder")}
         ${navItem("/settings", "Settings", input.active === "settings")}
         ${navItem("/billing", "Billing", input.active === "billing")}
