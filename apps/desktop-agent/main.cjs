@@ -14,6 +14,7 @@ const captures = new Map();
 
 let mainWindow;
 let recordingSessionId = null;
+const FALLBACK_DISPLAY_SOURCE_ID = "__meetx_primary_screen_fallback__";
 let selectedDisplaySourceId = null;
 let captureArmedUntil = 0;
 let isQuitting = false;
@@ -215,9 +216,11 @@ app.whenReady().then(async () => {
         thumbnailSize: { width: 360, height: 220 },
         fetchWindowIcons: false
       });
-      const selectedSource = sources.find((source) => source.id === selectedDisplaySourceId)
-        || sources.find((source) => source.id.startsWith("screen:"))
-        || sources[0];
+      const selectedSource = selectedDisplaySourceId === FALLBACK_DISPLAY_SOURCE_ID
+        ? sources.find((source) => source.id.startsWith("screen:")) || sources[0]
+        : sources.find((source) => source.id === selectedDisplaySourceId)
+          || sources.find((source) => source.id.startsWith("screen:"))
+          || sources[0];
       if (!selectedSource) {
         callback({});
         return;
@@ -289,6 +292,9 @@ ipcMain.handle("capture:begin", async (_event, input) => {
     const requestedSourceId = String(input.displaySourceId || "").trim();
     const availableSources = await listDisplaySources();
     displaySource = availableSources.find((source) => source.id === requestedSourceId) || null;
+    if (!displaySource && requestedSourceId === FALLBACK_DISPLAY_SOURCE_ID) {
+      displaySource = { id: FALLBACK_DISPLAY_SOURCE_ID, name: "Primary screen fallback", kind: "screen", thumbnail: "" };
+    }
     if (!displaySource) {
       throw new Error("Choose an available screen or application window before recording.");
     }

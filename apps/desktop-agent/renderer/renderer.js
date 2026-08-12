@@ -36,6 +36,7 @@ const elements = {
 };
 
 const LIVE_CHUNK_MS = 10_000;
+const FALLBACK_DISPLAY_SOURCE_ID = "__meetx_primary_screen_fallback__";
 let mediaRecorder = null;
 let recordingSessionId = null;
 let displayStream = null;
@@ -107,18 +108,16 @@ function selectDisplaySource(sourceId) {
 
 function renderDisplaySources(sources, currentSourceId) {
   elements.displaySourceGrid.replaceChildren();
+  const sourceList = Array.isArray(sources) && sources.length > 0
+    ? sources
+    : [{ id: FALLBACK_DISPLAY_SOURCE_ID, name: "Primary screen fallback", kind: "screen", thumbnail: "" }];
   if (!Array.isArray(sources) || sources.length === 0) {
-    elements.displaySource.value = "";
-    const empty = document.createElement("p");
-    empty.className = "source-preview-empty";
-    empty.textContent = "No screens or windows available";
-    elements.displaySourceGrid.append(empty);
-    return;
+    elements.displaySourceHint.textContent = "Electron did not return screen thumbnails, so Meet-X will try the primary screen fallback when you start recording.";
   }
 
-  const selectedSource = sources.some((source) => source.id === currentSourceId) ? currentSourceId : sources[0].id;
+  const selectedSource = sourceList.some((source) => source.id === currentSourceId) ? currentSourceId : sourceList[0].id;
   elements.displaySource.value = selectedSource;
-  for (const source of sources) {
+  for (const source of sourceList) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "source-preview-card";
