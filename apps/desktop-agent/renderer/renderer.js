@@ -106,11 +106,15 @@ function selectDisplaySource(sourceId) {
   updateStartAvailability();
 }
 
+function fallbackDisplaySources() {
+  return [{ id: FALLBACK_DISPLAY_SOURCE_ID, name: "Primary screen fallback", kind: "screen", thumbnail: "" }];
+}
+
 function renderDisplaySources(sources, currentSourceId) {
   elements.displaySourceGrid.replaceChildren();
   const sourceList = Array.isArray(sources) && sources.length > 0
     ? sources
-    : [{ id: FALLBACK_DISPLAY_SOURCE_ID, name: "Primary screen fallback", kind: "screen", thumbnail: "" }];
+    : fallbackDisplaySources();
   if (!Array.isArray(sources) || sources.length === 0) {
     elements.displaySourceHint.textContent = "Electron did not return screen thumbnails, so Meet-X will try the primary screen fallback when you start recording.";
   }
@@ -147,28 +151,31 @@ function renderDisplaySources(sources, currentSourceId) {
 async function loadDisplaySources() {
   const currentSourceId = elements.displaySource.value;
   elements.refreshSourcesButton.disabled = true;
-  elements.displaySourceHint.textContent = "Refreshing available screens and windows...";
+  elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
+  renderDisplaySources(fallbackDisplaySources(), currentSourceId);
+  elements.displaySourceHint.textContent = "Primary screen fallback is ready. Refreshing real screen/window thumbnails...";
+  updateStartAvailability();
   try {
-    const sources = await window.meetxDesktop.listDisplaySources();
-    renderDisplaySources(sources, currentSourceId);
-    elements.displaySourceHint.textContent = "Choose an entire screen or app window. Refresh if Teams, Zoom, or Meet was opened after this screen.";
+    const sources = await Promise.race([
+      window.meetxDesktop.listDisplaySources(),
+      new Promise((resolve) => window.setTimeout(() => resolve([]), 2000))
+    ]);
+    if (Array.isArray(sources) && sources.length > 0) {
+      renderDisplaySources(sources, currentSourceId);
+      elements.displaySourceHint.textContent = "Choose an entire screen or app window. Refresh if Teams, Zoom, or Meet was opened after this screen.";
+    } else {
+      renderDisplaySources(fallbackDisplaySources(), currentSourceId);
+      elements.displaySourceHint.textContent = "No thumbnails returned yet. Primary screen fallback is selected and recording can start.";
+    }
   } catch (error) {
-    elements.displaySource.value = "";
-    elements.displaySourceGrid.replaceChildren();
-    const empty = document.createElement("p");
-    empty.className = "source-preview-empty";
-    empty.textContent = "Source previews unavailable";
-    elements.displaySourceGrid.append(empty);
-    elements.displaySourceHint.textContent = error.message;
-    setStatus("error", "Screen sources unavailable", error.message);
+    renderDisplaySources(fallbackDisplaySources(), currentSourceId);
+    elements.displaySourceHint.textContent = "Screen thumbnails failed: " + error.message + ". Primary screen fallback is selected.";
   } finally {
     elements.refreshSourcesButton.disabled = false;
   }
-  elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
   updateStartAvailability();
 
-}
-function updateStartAvailability() {
+}function updateStartAvailability() {
   const hasCaptureSource = hasAudioSource() || elements.screenVideo.checked;
   const liveNeedsAudio = elements.transcriptionMode.value === "live" && !hasAudioSource();
   const displaySourceMissing = elements.screenVideo.checked && !elements.displaySource.value;
