@@ -1,0 +1,12 @@
+﻿node_modules
+dist
+.turbo
+.next
+.env
+.env.*
+!.env.example
+coverage
+*.log
+tmp
+models/whisper/*.bin
+

@@ -1,0 +1,26 @@
+{
+    "name":  "meet-x",
+    "private":  true,
+    "packageManager":  "pnpm@9.15.4",
+    "scripts":  {
+                    "dev":  "turbo run dev",
+                    "build":  "turbo run build",
+                    "lint":  "turbo run lint",
+                    "typecheck":  "turbo run typecheck",
+                    "test":  "turbo run test",
+                    "migrate":  "pnpm --filter @meet-x/db migrate",
+                    "phase1:harness":  "pnpm --filter @meet-x/capture-orchestrator dev",
+                    "phase2:harness":  "pnpm --filter @meet-x/transcription dev",
+                    "desktop:dev":  "pnpm --filter @meet-x/desktop-agent dev"
+                },
+    "devDependencies":  {
+                            "@types/node":  "^22.13.1",
+                            "eslint":  "^9.20.1",
+                            "prettier":  "^3.5.0",
+                            "turbo":  "^2.4.2",
+                            "typescript":  "^5.7.3",
+                            "@eslint/js":  "^9.20.1",
+                            "typescript-eslint":  "^8.24.0"
+                        },
+    "type":  "module"
+}

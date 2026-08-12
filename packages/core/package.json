@@ -1,0 +1,22 @@
+﻿{
+    "name":  "@meet-x/core",
+    "private":  true,
+    "type":  "module",
+    "main":  "dist/index.js",
+    "types":  "dist/index.d.ts",
+    "scripts":  {
+                    "build":  "tsc -p tsconfig.json",
+                    "lint":  "eslint src --max-warnings=0",
+                    "typecheck":  "tsc -p tsconfig.json --noEmit",
+                    "test":  "vitest run --passWithNoTests"
+                },
+    "dependencies":  {
+                         "zod":  "^3.24.2"
+                     },
+    "devDependencies":  {
+                            "vitest":  "^3.0.5"
+                        },
+    "exports":  {
+                    ".":  "./src/index.ts"
+                }
+}

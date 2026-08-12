@@ -1,0 +1,137 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; media-src 'self' blob:" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meet-X Desktop Recorder</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Meet-X for Windows</p>
+        <h1>Record your meeting,<br />your way.</h1>
+        <p class="lead">Capture system audio and microphone with optional screen video. Live transcripts can be opened simultaneously on web and mobile.</p>
+      </div>
+      <div class="status-cluster">
+        <span id="apiPill" class="pill neutral">Checking SaaS</span>
+        <span id="recordingPill" class="pill recording hidden"><i></i> Recording</span>
+      </div>
+    </header>
+
+    <section class="notice">
+      <strong>Visible, consent-first recording</strong>
+      <span>Meet-X will not start until you confirm participants were informed. Silent recording is not supported.</span>
+    </section>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-heading">
+          <div><p class="step">01</p><h2>Detected meeting</h2></div>
+          <button id="detectButton" class="secondary compact">Detect again</button>
+        </div>
+        <div id="detectedMeeting" class="detected empty">
+          <span class="app-dot"></span>
+          <div><strong>No active meeting detected yet</strong><p>Open a Teams, Zoom, or Google Meet call, then detect again.</p></div>
+        </div>
+
+        <label for="meetingTitle">Meeting name</label>
+        <input id="meetingTitle" placeholder="Meeting name will prefill when detected" />
+        <label for="meetingAudience">Audience / participants</label>
+        <textarea id="meetingAudience" placeholder="Names or emails, separated by commas"></textarea>
+        <div class="field-row">
+          <div><label for="sourceApp">Source</label><input id="sourceApp" placeholder="Teams, Zoom, Google Meet" /></div>
+          <div>
+            <label for="languageHint">Language</label>
+            <select id="languageHint">
+              <option value="auto">Auto detect · experimental</option>
+              <option value="en" selected>English · recommended</option>
+              <option value="hi">Hindi</option>
+            </select>
+          </div>
+        </div>
+        <label for="meetingUrl">Meeting URL <span>optional</span></label>
+        <input id="meetingUrl" placeholder="Paste a meeting link if available" />
+      </section>
+
+      <section class="panel recorder-panel">
+        <div class="panel-heading">
+          <div><p class="step">02</p><h2>Capture sources</h2></div>
+          <span id="timer" class="timer">00:00:00</span>
+        </div>
+
+        <label class="source-option">
+          <input id="systemAudio" type="checkbox" checked />
+          <span class="source-icon">◉</span>
+          <span><strong>System audio</strong><small>Everything you hear from Teams, Zoom, or Meet</small></span>
+          <b>Windows</b>
+        </label>
+        <label class="source-option">
+          <input id="microphone" type="checkbox" checked />
+          <span class="source-icon mic">⌁</span>
+          <span><strong>Microphone</strong><small>Your voice from the default input device</small></span>
+          <b>Local</b>
+        </label>
+        <label class="source-option">
+          <input id="screenVideo" type="checkbox" />
+          <span class="source-icon screen">▣</span>
+          <span><strong>Screen video</strong><small>Optionally save an entire screen or one application window</small></span>
+          <b>Optional</b>
+        </label>
+        <div id="displaySourcePicker" class="display-source-picker hidden">
+          <label for="displaySource">Screen or application window</label>
+          <div class="source-picker-row">
+            <select id="displaySource" aria-label="Screen or application window"></select>
+            <button id="refreshSourcesButton" class="secondary compact" type="button">Refresh</button>
+          </div>
+          <p>Window video is limited to the selected app. System audio still records everything you hear when enabled.</p>
+        </div>
+
+
+        <label class="consent">
+          <input id="disclosureAcknowledged" type="checkbox" />
+          <span>I have informed participants that this meeting is being recorded.</span>
+        </label>
+
+        <div class="transcription-mode">
+          <label for="transcriptionMode">Transcription timing</label>
+          <select id="transcriptionMode">
+            <option value="live" selected>Live while recording · recommended</option>
+            <option value="post">Process after recording</option>
+          </select>
+          <p id="transcriptionHelp">Rolling local Whisper transcription appears here and on the Live meetings web page, usually 10–20 seconds behind.</p>
+        </div>
+
+        <div id="liveTranscriptPanel" class="live-transcript hidden" aria-live="polite">
+          <div class="live-transcript-heading"><strong>Live transcript</strong><span id="liveTranscriptBadge">Listening</span></div>
+          <div id="liveTranscriptBody" class="live-transcript-body"><p>Transcript lines will appear after the first spoken chunk.</p></div>
+        </div>
+
+        <div class="capture-controls">
+          <button id="startButton" class="primary" disabled><span class="record-dot"></span> Start recording</button>
+          <button id="pauseButton" class="secondary hidden">Pause</button>
+          <button id="stopButton" class="stop hidden">Stop & process</button>
+        </div>
+
+        <div id="statusCard" class="status-card">
+          <strong id="statusTitle">Ready when you are</strong>
+          <p id="statusText">Confirm participant disclosure to enable recording.</p>
+        </div>
+        <button id="openLiveButton" class="open-live hidden">Open shared live transcript</button>
+        <p id="liveUrl" class="live-url"></p>
+        <button id="openMeetingButton" class="open-meeting hidden">Open transcript & summary</button>
+        <p id="localFile" class="local-file"></p>
+      </section>
+    </div>
+
+    <footer>
+      <span id="agentVersion">Meet-X Desktop Recorder</span>
+      <button id="openSaasButton" class="text-button">Open Meet-X library ↗</button>
+    </footer>
+  </main>
+  <script src="./renderer.js"></script>
+</body>
+</html>
+
