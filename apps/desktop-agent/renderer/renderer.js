@@ -95,28 +95,86 @@ function hasAudioSource() {
   return elements.systemAudio.checked || elements.microphone.checked;
 }
 
-function renderDisplaySources() {
-  elements.displaySourceGrid.replaceChildren();
-  const info = document.createElement("div");
-  info.className = "source-preview-empty source-system-picker";
-  info.innerHTML = "<strong>Native picker opens on Start recording.</strong><span>Choose Entire screen, Window, or browser tab in the same system picker used by screen sharing apps.</span>";
-  elements.displaySourceGrid.append(info);
-  elements.displaySource.value = "system-picker";
+function selectDisplaySource(sourceId) {
+  elements.displaySource.value = sourceId;
+  for (const card of elements.displaySourceGrid.querySelectorAll(".source-preview-card")) {
+    const selected = card.dataset.sourceId === sourceId;
+    card.classList.toggle("selected", selected);
+    card.setAttribute("aria-checked", selected ? "true" : "false");
+  }
+  updateStartAvailability();
 }
-async function loadDisplaySources() {
+function renderDisplaySources(sources, currentSourceId) {
+  elements.displaySourceGrid.replaceChildren();
+  if (!Array.isArray(sources) || sources.length === 0) {
+    elements.displaySource.value = "";
+    const empty = document.createElement("p");
+    empty.className = "source-preview-empty";
+    empty.textContent = "No screens or windows returned. Click Refresh or restart the desktop app.";
+    elements.displaySourceGrid.append(empty);
+    return;
+  }
+
+  const selectedSource = sources.some((source) => source.id === currentSourceId) ? currentSourceId : sources[0].id;
+  elements.displaySource.value = selectedSource;
+  for (const source of sources) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "source-preview-card";
+    card.dataset.sourceId = source.id;
+    card.setAttribute("role", "radio");
+    const preview = source.thumbnail ? document.createElement("img") : document.createElement("div");
+    preview.className = source.thumbnail ? "" : "source-preview-placeholder";
+    if (source.thumbnail) {
+      preview.alt = source.name;
+      preview.src = source.thumbnail;
+    } else {
+      preview.textContent = source.kind === "screen" ? "Screen" : "Window";
+    }
+    const meta = document.createElement("span");
+    const kind = document.createElement("b");
+    kind.textContent = source.kind === "screen" ? "Entire screen" : "App window";
+    const name = document.createElement("strong");
+    name.textContent = source.name;
+    meta.append(kind, name);
+    card.append(preview, meta);
+    card.addEventListener("click", () => selectDisplaySource(source.id));
+    elements.displaySourceGrid.append(card);
+  }
+  selectDisplaySource(selectedSource);
+}async function loadDisplaySources() {
+  const currentSourceId = elements.displaySource.value;
+  elements.refreshSourcesButton.disabled = true;
   elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
-  renderDisplaySources();
-  elements.displaySourceHint.textContent = "Click Start recording, then choose Entire screen, Window, or browser tab in the native picker.";
+  elements.displaySourceHint.textContent = "Loading available screens and application windows...";
+  try {
+    const sources = await window.meetxDesktop.listDisplaySources();
+    renderDisplaySources(sources, currentSourceId);
+    elements.displaySourceHint.textContent = Array.isArray(sources) && sources.length > 0
+      ? "Choose an entire screen or application window before Start recording."
+      : "No screen/window sources were returned by Electron. Try Refresh or restart Meet-X Desktop.";
+  } catch (error) {
+    renderDisplaySources([], currentSourceId);
+    elements.displaySourceHint.textContent = "Screen source loading failed: " + error.message;
+  } finally {
+    elements.refreshSourcesButton.disabled = false;
+  }
   updateStartAvailability();
 
-}function updateStartAvailability() {
+}
+
+function updateStartAvailability() {
   const hasCaptureSource = hasAudioSource() || elements.screenVideo.checked;
   const liveNeedsAudio = elements.transcriptionMode.value === "live" && !hasAudioSource();
-  elements.startButton.disabled = !elements.disclosureAcknowledged.checked || !hasCaptureSource || liveNeedsAudio || Boolean(recordingSessionId);
+  const displaySourceMissing = elements.screenVideo.checked && !elements.displaySource.value;
+  elements.startButton.disabled = !elements.disclosureAcknowledged.checked || !hasCaptureSource || liveNeedsAudio || displaySourceMissing || Boolean(recordingSessionId);
   if (!recordingSessionId && !elements.disclosureAcknowledged.checked) {
     setStatus("", "Ready when you are", "Confirm participant disclosure to enable recording.");
   } else if (!recordingSessionId && !hasCaptureSource) {
-    setStatus("error", "Choose a capture source", "Enable system audio, microphone, screen video, or a combination.");  } else if (!recordingSessionId && liveNeedsAudio) {
+    setStatus("error", "Choose a capture source", "Enable system audio, microphone, screen video, or a combination.");
+  } else if (!recordingSessionId && displaySourceMissing) {
+    setStatus("error", "Choose a screen or window", "Select one of the screen/window cards above before recording.");
+  } else if (!recordingSessionId && liveNeedsAudio) {
     setStatus("error", "Live transcript needs audio", "Enable system audio or microphone, or choose post-recording processing.");
   } else if (!recordingSessionId) {
     setStatus("", "Ready to record", elements.screenVideo.checked ? "Screen video and selected audio sources will be saved." : "Audio-only recording is ready; no screen video will be saved.");
@@ -143,7 +201,7 @@ function metadata() {
     systemAudio: elements.systemAudio.checked,
     microphone: elements.microphone.checked,
     screenVideo: elements.screenVideo.checked,
-    displaySourceId: elements.screenVideo.checked ? "system-picker" : "",
+    displaySourceId: elements.displaySource.value,
     disclosureAcknowledged: elements.disclosureAcknowledged.checked,
     transcriptionMode: elements.transcriptionMode.value
   };
