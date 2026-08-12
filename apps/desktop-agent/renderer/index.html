@@ -46,8 +46,8 @@
           <div>
             <label for="languageHint">Language</label>
             <select id="languageHint">
-              <option value="auto">Auto detect · experimental</option>
-              <option value="en" selected>English · recommended</option>
+              <option value="auto">Auto detect - experimental</option>
+              <option value="en" selected>English - recommended</option>
               <option value="hi">Hindi</option>
             </select>
           </div>
@@ -64,31 +64,31 @@
 
         <label class="source-option">
           <input id="systemAudio" type="checkbox" checked />
-          <span class="source-icon">◉</span>
+          <span class="source-icon">A</span>
           <span><strong>System audio</strong><small>Everything you hear from Teams, Zoom, or Meet</small></span>
           <b>Windows</b>
         </label>
         <label class="source-option">
           <input id="microphone" type="checkbox" checked />
-          <span class="source-icon mic">⌁</span>
+          <span class="source-icon mic">M</span>
           <span><strong>Microphone</strong><small>Your voice from the default input device</small></span>
           <b>Local</b>
         </label>
         <label class="source-option">
           <input id="screenVideo" type="checkbox" />
-          <span class="source-icon screen">▣</span>
+          <span class="source-icon screen">S</span>
           <span><strong>Screen video</strong><small>Optionally save an entire screen or one application window</small></span>
           <b>Optional</b>
         </label>
         <div id="displaySourcePicker" class="display-source-picker hidden">
-          <label for="displaySource">Screen or application window</label>
-          <div class="source-picker-row">
-            <select id="displaySource" aria-label="Screen or application window"></select>
+          <div class="source-picker-header">
+            <label for="displaySourceGrid">Choose what to record</label>
             <button id="refreshSourcesButton" class="secondary compact" type="button">Refresh</button>
           </div>
-          <p>Window video is limited to the selected app. System audio still records everything you hear when enabled.</p>
+          <input id="displaySource" type="hidden" />
+          <div id="displaySourceGrid" class="source-preview-grid" role="radiogroup" aria-label="Screen or application window"></div>
+          <p id="displaySourceHint">Window video is limited to the selected app. System audio still records everything you hear when enabled.</p>
         </div>
-
 
         <label class="consent">
           <input id="disclosureAcknowledged" type="checkbox" />
@@ -98,10 +98,10 @@
         <div class="transcription-mode">
           <label for="transcriptionMode">Transcription timing</label>
           <select id="transcriptionMode">
-            <option value="live" selected>Live while recording · recommended</option>
+            <option value="live" selected>Live while recording - recommended</option>
             <option value="post">Process after recording</option>
           </select>
-          <p id="transcriptionHelp">Rolling local Whisper transcription appears here and on the Live meetings web page, usually 10–20 seconds behind.</p>
+          <p id="transcriptionHelp">Rolling local Whisper transcription appears here and on the Live meetings web page, usually 10-20 seconds behind.</p>
         </div>
 
         <div id="liveTranscriptPanel" class="live-transcript hidden" aria-live="polite">
@@ -128,7 +128,7 @@
 
     <footer>
       <span id="agentVersion">Meet-X Desktop Recorder</span>
-      <button id="openSaasButton" class="text-button">Open Meet-X library ↗</button>
+      <button id="openSaasButton" class="text-button">Open Meet-X library -></button>
     </footer>
   </main>
   <script src="./renderer.js"></script>
