@@ -14,7 +14,6 @@ const captures = new Map();
 
 let mainWindow;
 let recordingSessionId = null;
-const FALLBACK_DISPLAY_SOURCE_ID = "__meetx_primary_screen_fallback__";
 let selectedDisplaySourceId = null;
 let captureArmedUntil = 0;
 let isQuitting = false;
@@ -205,32 +204,6 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(isTrustedWebContents(webContents) && (permission === "media" || permission === "display-capture"));
   });
-  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
-    if (Date.now() > captureArmedUntil || !recordingSessionId) {
-      callback({});
-      return;
-    }
-    try {
-      const sources = await desktopCapturer.getSources({
-        types: ["screen", "window"],
-        thumbnailSize: { width: 360, height: 220 },
-        fetchWindowIcons: false
-      });
-      const selectedSource = selectedDisplaySourceId === FALLBACK_DISPLAY_SOURCE_ID
-        ? sources.find((source) => source.id.startsWith("screen:")) || sources[0]
-        : sources.find((source) => source.id === selectedDisplaySourceId)
-          || sources.find((source) => source.id.startsWith("screen:"))
-          || sources[0];
-      if (!selectedSource) {
-        callback({});
-        return;
-      }
-      callback({ video: selectedSource, audio: "loopback" });
-    } catch {
-      callback({});
-    }
-  });
-
   createWindow();
 });
 
@@ -287,21 +260,8 @@ ipcMain.handle("capture:begin", async (_event, input) => {
     throw new Error("A recording is already active.");
   }
 
-  let displaySource = null;
-  if (input.screenVideo) {
-    const requestedSourceId = String(input.displaySourceId || "").trim();
-    const availableSources = await listDisplaySources();
-    displaySource = availableSources.find((source) => source.id === requestedSourceId) || null;
-    if (!displaySource && requestedSourceId === FALLBACK_DISPLAY_SOURCE_ID) {
-      displaySource = { id: FALLBACK_DISPLAY_SOURCE_ID, name: "Primary screen fallback", kind: "screen", thumbnail: "" };
-    }
-    if (!displaySource) {
-      throw new Error("Choose an available screen or application window before recording.");
-    }
-    selectedDisplaySourceId = displaySource.id;
-  } else {
-    selectedDisplaySourceId = null;
-  }
+  const displaySource = input.screenVideo ? { id: "system-picker", name: "Chosen in system screen picker", kind: "screen", thumbnail: "" } : null;
+  selectedDisplaySourceId = null;
 
   const sessionId = "cap_" + randomUUID().replaceAll("-", "");
   const directory = recordingRoot();

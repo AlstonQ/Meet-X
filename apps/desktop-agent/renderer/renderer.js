@@ -36,7 +36,6 @@ const elements = {
 };
 
 const LIVE_CHUNK_MS = 10_000;
-const FALLBACK_DISPLAY_SOURCE_ID = "__meetx_primary_screen_fallback__";
 let mediaRecorder = null;
 let recordingSessionId = null;
 let displayStream = null;
@@ -96,97 +95,28 @@ function hasAudioSource() {
   return elements.systemAudio.checked || elements.microphone.checked;
 }
 
-function selectDisplaySource(sourceId) {
-  elements.displaySource.value = sourceId;
-  for (const card of elements.displaySourceGrid.querySelectorAll(".source-preview-card")) {
-    const selected = card.dataset.sourceId === sourceId;
-    card.classList.toggle("selected", selected);
-    card.setAttribute("aria-checked", selected ? "true" : "false");
-  }
-  updateStartAvailability();
-}
-
-function fallbackDisplaySources() {
-  return [{ id: FALLBACK_DISPLAY_SOURCE_ID, name: "Primary screen fallback", kind: "screen", thumbnail: "" }];
-}
-
-function renderDisplaySources(sources, currentSourceId) {
+function renderDisplaySources() {
   elements.displaySourceGrid.replaceChildren();
-  const sourceList = Array.isArray(sources) && sources.length > 0
-    ? sources
-    : fallbackDisplaySources();
-  if (!Array.isArray(sources) || sources.length === 0) {
-    elements.displaySourceHint.textContent = "Electron did not return screen thumbnails, so Meet-X will try the primary screen fallback when you start recording.";
-  }
-
-  const selectedSource = sourceList.some((source) => source.id === currentSourceId) ? currentSourceId : sourceList[0].id;
-  elements.displaySource.value = selectedSource;
-  for (const source of sourceList) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "source-preview-card";
-    card.dataset.sourceId = source.id;
-    card.setAttribute("role", "radio");
-    const preview = source.thumbnail ? document.createElement("img") : document.createElement("div");
-    preview.className = source.thumbnail ? "" : "source-preview-placeholder";
-    if (source.thumbnail) {
-      preview.alt = source.name;
-      preview.src = source.thumbnail;
-    } else {
-      preview.textContent = source.kind === "screen" ? "Screen" : "Window";
-    }
-    const meta = document.createElement("span");
-    const kind = document.createElement("b");
-    kind.textContent = source.kind === "screen" ? "Entire screen" : "App window";
-    const name = document.createElement("strong");
-    name.textContent = source.name;
-    meta.append(kind, name);
-    card.append(preview, meta);
-    card.addEventListener("click", () => selectDisplaySource(source.id));
-    elements.displaySourceGrid.append(card);
-  }
-  if (selectedSource) selectDisplaySource(selectedSource);
+  const info = document.createElement("div");
+  info.className = "source-preview-empty source-system-picker";
+  info.innerHTML = "<strong>Native picker opens on Start recording.</strong><span>Choose Entire screen, Window, or browser tab in the same system picker used by screen sharing apps.</span>";
+  elements.displaySourceGrid.append(info);
+  elements.displaySource.value = "system-picker";
 }
-
 async function loadDisplaySources() {
-  const currentSourceId = elements.displaySource.value;
-  elements.refreshSourcesButton.disabled = true;
   elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
-  renderDisplaySources(fallbackDisplaySources(), currentSourceId);
-  elements.displaySourceHint.textContent = "Primary screen fallback is ready. Refreshing real screen/window thumbnails...";
-  updateStartAvailability();
-  try {
-    const sources = await Promise.race([
-      window.meetxDesktop.listDisplaySources(),
-      new Promise((resolve) => window.setTimeout(() => resolve([]), 2000))
-    ]);
-    if (Array.isArray(sources) && sources.length > 0) {
-      renderDisplaySources(sources, currentSourceId);
-      elements.displaySourceHint.textContent = "Choose an entire screen or app window. Refresh if Teams, Zoom, or Meet was opened after this screen.";
-    } else {
-      renderDisplaySources(fallbackDisplaySources(), currentSourceId);
-      elements.displaySourceHint.textContent = "No thumbnails returned yet. Primary screen fallback is selected and recording can start.";
-    }
-  } catch (error) {
-    renderDisplaySources(fallbackDisplaySources(), currentSourceId);
-    elements.displaySourceHint.textContent = "Screen thumbnails failed: " + error.message + ". Primary screen fallback is selected.";
-  } finally {
-    elements.refreshSourcesButton.disabled = false;
-  }
+  renderDisplaySources();
+  elements.displaySourceHint.textContent = "Click Start recording, then choose Entire screen, Window, or browser tab in the native picker.";
   updateStartAvailability();
 
 }function updateStartAvailability() {
   const hasCaptureSource = hasAudioSource() || elements.screenVideo.checked;
   const liveNeedsAudio = elements.transcriptionMode.value === "live" && !hasAudioSource();
-  const displaySourceMissing = elements.screenVideo.checked && !elements.displaySource.value;
-  elements.startButton.disabled = !elements.disclosureAcknowledged.checked || !hasCaptureSource || liveNeedsAudio || displaySourceMissing || Boolean(recordingSessionId);
+  elements.startButton.disabled = !elements.disclosureAcknowledged.checked || !hasCaptureSource || liveNeedsAudio || Boolean(recordingSessionId);
   if (!recordingSessionId && !elements.disclosureAcknowledged.checked) {
     setStatus("", "Ready when you are", "Confirm participant disclosure to enable recording.");
   } else if (!recordingSessionId && !hasCaptureSource) {
-    setStatus("error", "Choose a capture source", "Enable system audio, microphone, screen video, or a combination.");
-  } else if (!recordingSessionId && displaySourceMissing) {
-    setStatus("error", "Choose a screen or window", "Select an entire screen or one application window to save with this recording.");
-  } else if (!recordingSessionId && liveNeedsAudio) {
+    setStatus("error", "Choose a capture source", "Enable system audio, microphone, screen video, or a combination.");  } else if (!recordingSessionId && liveNeedsAudio) {
     setStatus("error", "Live transcript needs audio", "Enable system audio or microphone, or choose post-recording processing.");
   } else if (!recordingSessionId) {
     setStatus("", "Ready to record", elements.screenVideo.checked ? "Screen video and selected audio sources will be saved." : "Audio-only recording is ready; no screen video will be saved.");
@@ -213,7 +143,7 @@ function metadata() {
     systemAudio: elements.systemAudio.checked,
     microphone: elements.microphone.checked,
     screenVideo: elements.screenVideo.checked,
-    displaySourceId: elements.displaySource.value,
+    displaySourceId: elements.screenVideo.checked ? "system-picker" : "",
     disclosureAcknowledged: elements.disclosureAcknowledged.checked,
     transcriptionMode: elements.transcriptionMode.value
   };
