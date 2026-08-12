@@ -4,6 +4,16 @@ const { promisify } = require("node:util");
 const execFileAsync = promisify(execFile);
 const browserProcessNames = new Set(["chrome", "msedge", "firefox"]);
 const confidenceRank = { high: 0, medium: 1, low: 2 };
+const teamsProcessNames = new Set(["teams", "msteams", "ms-teams"]);
+
+function isTeamsWindow(processName, title) {
+  const lowerTitle = title.toLowerCase();
+  return teamsProcessNames.has(processName) || lowerTitle.includes("microsoft teams") || lowerTitle.includes("teams meeting");
+}
+
+function isTeamsNonMeetingWindow(title) {
+  return /\b(calendar|chat|activity|teams and channels|files|settings|meet-x)\b/iu.test(title);
+}
 
 function classifyWindow(raw) {
   const processName = String(raw.ProcessName || "").toLowerCase();
@@ -13,8 +23,14 @@ function classifyWindow(raw) {
   if (browserProcessNames.has(processName) && (haystack.includes("meet-x") || haystack.includes("localhost:3001"))) {
     return null;
   }
-  if (haystack.includes("teams") && /\b(meeting|call|compact view|lobby|pre-join)\b/iu.test(title)) {
+  if (isTeamsWindow(processName, title) && isTeamsNonMeetingWindow(title)) {
+    return null;
+  }
+  if (isTeamsWindow(processName, title) && /\b(meeting|call|compact view|lobby|pre-join|presenting|sharing|participants|muted|unmuted)\b/iu.test(title)) {
     return { sourceApp: "Microsoft Teams", title: title || "Microsoft Teams meeting", confidence: "high", reason: "Teams meeting/call window detected" };
+  }
+  if (isTeamsWindow(processName, title) && title) {
+    return { sourceApp: "Microsoft Teams", title, confidence: "medium", reason: "Microsoft Teams window detected; confirm this is the active meeting" };
   }
   if (haystack.includes("zoom") && /\b(zoom meeting|zoom webinar|waiting room|in meeting)\b/iu.test(title)) {
     return { sourceApp: "Zoom", title: title || "Zoom meeting", confidence: "high", reason: "Zoom meeting window detected" };
@@ -33,7 +49,7 @@ async function detectMeetings() {
     return { available: false, candidates: [], note: "Desktop meeting detection is currently available on Windows." };
   }
 
-  const script = "Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.ProcessName -match 'Teams|ms-teams|Zoom|chrome|msedge|firefox') } | Select-Object ProcessName,MainWindowTitle | ConvertTo-Json -Compress";
+  const script = "Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and ($_.ProcessName -match 'Teams|MSTeams|ms-teams|Zoom|chrome|msedge|firefox') } | Select-Object ProcessName,MainWindowTitle | ConvertTo-Json -Compress";
   const result = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script], {
     timeout: 5000,
     windowsHide: true,

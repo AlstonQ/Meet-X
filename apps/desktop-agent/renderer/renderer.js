@@ -123,16 +123,21 @@ function renderDisplaySources(sources, currentSourceId) {
     card.className = "source-preview-card";
     card.dataset.sourceId = source.id;
     card.setAttribute("role", "radio");
-    const image = document.createElement("img");
-    image.alt = source.name;
-    image.src = source.thumbnail || "";
+    const preview = source.thumbnail ? document.createElement("img") : document.createElement("div");
+    preview.className = source.thumbnail ? "" : "source-preview-placeholder";
+    if (source.thumbnail) {
+      preview.alt = source.name;
+      preview.src = source.thumbnail;
+    } else {
+      preview.textContent = source.kind === "screen" ? "Screen" : "Window";
+    }
     const meta = document.createElement("span");
     const kind = document.createElement("b");
     kind.textContent = source.kind === "screen" ? "Entire screen" : "App window";
     const name = document.createElement("strong");
     name.textContent = source.name;
     meta.append(kind, name);
-    card.append(image, meta);
+    card.append(preview, meta);
     card.addEventListener("click", () => selectDisplaySource(source.id));
     elements.displaySourceGrid.append(card);
   }
@@ -146,7 +151,7 @@ async function loadDisplaySources() {
   try {
     const sources = await window.meetxDesktop.listDisplaySources();
     renderDisplaySources(sources, currentSourceId);
-    elements.displaySourceHint.textContent = "Window video is limited to the selected app. System audio still records everything you hear when enabled.";
+    elements.displaySourceHint.textContent = "Choose an entire screen or app window. Refresh if Teams, Zoom, or Meet was opened after this screen.";
   } catch (error) {
     elements.displaySource.value = "";
     elements.displaySourceGrid.replaceChildren();

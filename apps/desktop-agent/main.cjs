@@ -84,7 +84,8 @@ async function listDisplaySources() {
     .map((source) => ({
       id: source.id,
       name: source.name,
-      kind: source.id.startsWith("screen:") ? "screen" : "window"
+      kind: source.id.startsWith("screen:") ? "screen" : "window",
+      thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : ""
     }));
 }
 
