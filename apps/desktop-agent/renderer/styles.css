@@ -52,6 +52,7 @@ textarea { min-height: 72px; resize: vertical; }
 .source-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .source-picker-header label { margin: 0 !important; }
 .source-picker-header button { white-space: nowrap; }
+.display-source-select { margin: 0 0 10px; min-height: 44px; font-weight: 700; }
 .source-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-height: 360px; overflow: auto; padding: 1px; }
 .source-preview-card { position: relative; display: grid; gap: 8px; text-align: left; border: 1px solid rgba(0,0,0,.08); border-radius: 14px; background: #fff; padding: 8px; color: #1d1d1f; box-shadow: 0 4px 16px rgba(0,0,0,.04); }
 .source-preview-card:hover { border-color: #bfb1ff; }

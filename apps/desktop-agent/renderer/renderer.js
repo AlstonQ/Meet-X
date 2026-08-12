@@ -13,6 +13,7 @@ const elements = {
   screenVideo: document.getElementById("screenVideo"),
   displaySourcePicker: document.getElementById("displaySourcePicker"),
   displaySource: document.getElementById("displaySource"),
+  displaySourceSelect: document.getElementById("displaySourceSelect"),
   displaySourceGrid: document.getElementById("displaySourceGrid"),
   refreshSourcesButton: document.getElementById("refreshSourcesButton"),
   disclosureAcknowledged: document.getElementById("disclosureAcknowledged"),
@@ -106,8 +107,13 @@ function selectDisplaySource(sourceId) {
 }
 function renderDisplaySources(sources, currentSourceId) {
   elements.displaySourceGrid.replaceChildren();
+  elements.displaySourceSelect.replaceChildren();
   if (!Array.isArray(sources) || sources.length === 0) {
     elements.displaySource.value = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No screens/windows found";
+    elements.displaySourceSelect.append(option);
     const empty = document.createElement("p");
     empty.className = "source-preview-empty";
     empty.textContent = "No screens or windows returned. Click Refresh after opening the app/window you want to record.";
@@ -118,6 +124,11 @@ function renderDisplaySources(sources, currentSourceId) {
   const selectedSource = sources.some((source) => source.id === currentSourceId) ? currentSourceId : sources[0].id;
   elements.displaySource.value = selectedSource;
   for (const source of sources) {
+    const option = document.createElement("option");
+    option.value = source.id;
+    option.textContent = (source.kind === "screen" ? "Entire screen - " : "App window - ") + source.name;
+    elements.displaySourceSelect.append(option);
+
     const card = document.createElement("button");
     card.type = "button";
     card.className = "source-preview-card";
@@ -142,7 +153,8 @@ function renderDisplaySources(sources, currentSourceId) {
     elements.displaySourceGrid.append(card);
   }
   selectDisplaySource(selectedSource);
-}async function loadDisplaySources() {
+}
+async function loadDisplaySources() {
   const currentSourceId = elements.displaySource.value;
   elements.refreshSourcesButton.disabled = true;
   elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
@@ -628,6 +640,7 @@ elements.disclosureAcknowledged.addEventListener("change", updateStartAvailabili
 elements.systemAudio.addEventListener("change", updateStartAvailability);
 elements.microphone.addEventListener("change", updateStartAvailability);
 elements.refreshSourcesButton.addEventListener("click", loadDisplaySources);
+elements.displaySourceSelect.addEventListener("change", () => selectDisplaySource(elements.displaySourceSelect.value));
 elements.screenVideo.addEventListener("change", async () => {
   elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
   if (elements.screenVideo.checked) await loadDisplaySources();
