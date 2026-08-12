@@ -110,7 +110,7 @@ function renderDisplaySources(sources, currentSourceId) {
     elements.displaySource.value = "";
     const empty = document.createElement("p");
     empty.className = "source-preview-empty";
-    empty.textContent = "No screens or windows returned. Click Refresh or restart the desktop app.";
+    empty.textContent = "No screens or windows returned. Click Refresh after opening the app/window you want to record.";
     elements.displaySourceGrid.append(empty);
     return;
   }
@@ -129,7 +129,7 @@ function renderDisplaySources(sources, currentSourceId) {
       preview.alt = source.name;
       preview.src = source.thumbnail;
     } else {
-      preview.textContent = source.kind === "screen" ? "Screen" : "Window";
+      preview.textContent = source.kind === "screen" ? "Entire screen" : "App window";
     }
     const meta = document.createElement("span");
     const kind = document.createElement("b");
@@ -146,12 +146,12 @@ function renderDisplaySources(sources, currentSourceId) {
   const currentSourceId = elements.displaySource.value;
   elements.refreshSourcesButton.disabled = true;
   elements.displaySourcePicker.classList.toggle("hidden", !elements.screenVideo.checked);
-  elements.displaySourceHint.textContent = "Loading available screens and application windows...";
+  elements.displaySourceHint.textContent = "Loading screens and app windows...";
   try {
     const sources = await window.meetxDesktop.listDisplaySources();
     renderDisplaySources(sources, currentSourceId);
     elements.displaySourceHint.textContent = Array.isArray(sources) && sources.length > 0
-      ? "Choose an entire screen or application window before Start recording."
+      ? "Choose one screen/window card, then click Start recording."
       : "No screen/window sources were returned by Electron. Try Refresh or restart Meet-X Desktop.";
   } catch (error) {
     renderDisplaySources([], currentSourceId);

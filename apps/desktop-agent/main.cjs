@@ -69,6 +69,14 @@ function setRecordingWindowState(active) {
   mainWindow.setTitle(active ? "Recording - Meet-X Desktop Recorder" : "Meet-X Desktop Recorder");
 }
 
+function debugLogPath() {
+  return path.join(app.getPath("userData"), "meetx-desktop-debug.log");
+}
+
+function appendDebugLog(message) {
+  fsp.appendFile(debugLogPath(), new Date().toISOString() + " " + message + "\n").catch(() => undefined);
+}
+
 function recordingRoot() {
   return path.join(app.getPath("userData"), "recordings");
 }
@@ -76,16 +84,17 @@ function recordingRoot() {
 async function listDisplaySources() {
   const sources = await desktopCapturer.getSources({
     types: ["screen", "window"],
-    thumbnailSize: { width: 360, height: 220 },
+    thumbnailSize: { width: 0, height: 0 },
     fetchWindowIcons: false
   });
+  appendDebugLog("desktopCapturer returned " + String(sources.length) + " source(s): " + sources.map((source) => source.id + "=" + source.name).join(" | "));
   return sources
     .filter((source) => !source.name.toLowerCase().includes("meet-x desktop recorder"))
     .map((source) => ({
       id: source.id,
       name: source.name,
       kind: source.id.startsWith("screen:") ? "screen" : "window",
-      thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : ""
+      thumbnail: ""
     }));
 }
 
@@ -212,7 +221,7 @@ app.whenReady().then(async () => {
     try {
       const sources = await desktopCapturer.getSources({
         types: ["screen", "window"],
-        thumbnailSize: { width: 360, height: 220 },
+        thumbnailSize: { width: 0, height: 0 },
         fetchWindowIcons: false
       });
       const selectedSource = sources.find((source) => source.id === selectedDisplaySourceId)
@@ -286,12 +295,11 @@ ipcMain.handle("capture:begin", async (_event, input) => {
   let displaySource = null;
   if (input.screenVideo) {
     const requestedSourceId = String(input.displaySourceId || "").trim();
-    const availableSources = await listDisplaySources();
-    displaySource = availableSources.find((source) => source.id === requestedSourceId) || null;
-    if (!displaySource) {
+    if (!/^(screen|window):/u.test(requestedSourceId)) {
       throw new Error("Choose a screen or application window before recording.");
     }
-    selectedDisplaySourceId = displaySource.id;
+    displaySource = { id: requestedSourceId, name: "Selected screen/window", kind: requestedSourceId.startsWith("screen:") ? "screen" : "window", thumbnail: "" };
+    selectedDisplaySourceId = requestedSourceId;
   } else {
     selectedDisplaySourceId = null;
   }
