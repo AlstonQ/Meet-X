@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell } = require("electron");
+const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell } = require("electron");
 const { createReadStream } = require("node:fs");
 const fsp = require("node:fs/promises");
 const http = require("node:http");
@@ -76,7 +76,7 @@ function recordingRoot() {
 async function listDisplaySources() {
   const sources = await desktopCapturer.getSources({
     types: ["screen", "window"],
-    thumbnailSize: { width: 0, height: 0 },
+    thumbnailSize: { width: 360, height: 220 },
     fetchWindowIcons: false
   });
   return sources
@@ -211,7 +211,7 @@ app.whenReady().then(async () => {
     try {
       const sources = await desktopCapturer.getSources({
         types: ["screen", "window"],
-        thumbnailSize: { width: 0, height: 0 },
+        thumbnailSize: { width: 360, height: 220 },
         fetchWindowIcons: false
       });
       const selectedSource = sources.find((source) => source.id === selectedDisplaySourceId)
@@ -516,9 +516,3 @@ ipcMain.handle("app:open-url", async (_event, rawUrl) => {
   await shell.openExternal(target.toString());
   return { ok: true };
 });
-
-
-
-
-
-

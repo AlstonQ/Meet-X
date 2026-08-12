@@ -1,4 +1,4 @@
-﻿const elements = {
+const elements = {
   apiPill: document.getElementById("apiPill"),
   recordingPill: document.getElementById("recordingPill"),
   detectButton: document.getElementById("detectButton"),
@@ -94,35 +94,67 @@ function hasAudioSource() {
   return elements.systemAudio.checked || elements.microphone.checked;
 }
 
+function selectDisplaySource(sourceId) {
+  elements.displaySource.value = sourceId;
+  for (const card of elements.displaySourceGrid.querySelectorAll(".source-preview-card")) {
+    const selected = card.dataset.sourceId === sourceId;
+    card.classList.toggle("selected", selected);
+    card.setAttribute("aria-checked", selected ? "true" : "false");
+  }
+  updateStartAvailability();
+}
+
+function renderDisplaySources(sources, currentSourceId) {
+  elements.displaySourceGrid.replaceChildren();
+  if (!Array.isArray(sources) || sources.length === 0) {
+    elements.displaySource.value = "";
+    const empty = document.createElement("p");
+    empty.className = "source-preview-empty";
+    empty.textContent = "No screens or windows available";
+    elements.displaySourceGrid.append(empty);
+    return;
+  }
+
+  const selectedSource = sources.some((source) => source.id === currentSourceId) ? currentSourceId : sources[0].id;
+  elements.displaySource.value = selectedSource;
+  for (const source of sources) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "source-preview-card";
+    card.dataset.sourceId = source.id;
+    card.setAttribute("role", "radio");
+    const image = document.createElement("img");
+    image.alt = source.name;
+    image.src = source.thumbnail || "";
+    const meta = document.createElement("span");
+    const kind = document.createElement("b");
+    kind.textContent = source.kind === "screen" ? "Entire screen" : "App window";
+    const name = document.createElement("strong");
+    name.textContent = source.name;
+    meta.append(kind, name);
+    card.append(image, meta);
+    card.addEventListener("click", () => selectDisplaySource(source.id));
+    elements.displaySourceGrid.append(card);
+  }
+  selectDisplaySource(selectedSource);
+}
+
 async function loadDisplaySources() {
   const currentSourceId = elements.displaySource.value;
   elements.refreshSourcesButton.disabled = true;
+  elements.displaySourceHint.textContent = "Refreshing available screens and windows...";
   try {
     const sources = await window.meetxDesktop.listDisplaySources();
-    elements.displaySource.replaceChildren();
-    if (!Array.isArray(sources) || sources.length === 0) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = "No screens or windows available";
-      elements.displaySource.append(option);
-    } else {
-      for (const source of sources) {
-        const option = document.createElement("option");
-        option.value = source.id;
-        const sourceKind = source.kind === "screen" ? "Entire screen" : "App window";
-        option.textContent = sourceKind + " - " + source.name;
-        elements.displaySource.append(option);
-      }
-      if (sources.some((source) => source.id === currentSourceId)) {
-        elements.displaySource.value = currentSourceId;
-      }
-    }
+    renderDisplaySources(sources, currentSourceId);
+    elements.displaySourceHint.textContent = "Window video is limited to the selected app. System audio still records everything you hear when enabled.";
   } catch (error) {
-    elements.displaySource.replaceChildren();
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "Source list unavailable";
-    elements.displaySource.append(option);
+    elements.displaySource.value = "";
+    elements.displaySourceGrid.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "source-preview-empty";
+    empty.textContent = "Source previews unavailable";
+    elements.displaySourceGrid.append(empty);
+    elements.displaySourceHint.textContent = error.message;
     setStatus("error", "Screen sources unavailable", error.message);
   } finally {
     elements.refreshSourcesButton.disabled = false;
@@ -600,11 +632,10 @@ elements.screenVideo.addEventListener("change", async () => {
   if (elements.screenVideo.checked) await loadDisplaySources();
   else updateStartAvailability();
 });
-elements.displaySource.addEventListener("change", updateStartAvailability);
+
 elements.transcriptionMode.addEventListener("change", updateTranscriptionModeUI);
 elements.openLiveButton.addEventListener("click", () => { if (livePageUrl) window.meetxDesktop.openUrl(livePageUrl); });
 elements.openMeetingButton.addEventListener("click", () => { if (meetingDetailUrl) window.meetxDesktop.openUrl(meetingDetailUrl); });
 elements.openSaasButton.addEventListener("click", () => window.meetxDesktop.openUrl("/library"));
 
 initialize();
-
