@@ -1,10 +1,14 @@
 import { Body, Controller, Get, Header, Headers, HttpException, HttpStatus, Param, Post, Query, Req, Res } from "@nestjs/common";
 import { LocalWhisperTranscriptionProvider, LocalWhisperUnavailableError, summarizeWithCitations } from "@meet-x/transcription";
+import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { promisify } from "node:util";
 import { requirePrototypeSession, renderSaasShell } from "./auth.controller.js";
 import { addPrototypeNote, deletePrototypeMeeting, getPrototypeMeeting, listPrototypeMeetings, saveUploadedMeeting, updatePrototypeMeeting, type PrototypeMeeting, type PrototypeNote } from "./prototype-store.js";
+
+const execFileAsync = promisify(execFile);
 
 function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -25,12 +29,29 @@ function safeDownloadName(meeting: PrototypeMeeting, extension: "webm" | "mp4" =
 }
 
 function playableArtifactPath(meeting: PrototypeMeeting): string {
+  return meeting.artifactPath.replace(/\.webm$/u, ".playback.webm");
+}
+
+function legacyMp4ArtifactPath(meeting: PrototypeMeeting): string {
   return meeting.artifactPath.replace(/\.webm$/u, ".playback.mp4");
 }
 
 function playbackMimeType(meeting: PrototypeMeeting): string {
   const mimeType = meeting.mimeType.split(";")[0] ?? "";
   return mimeType.trim().length > 0 ? mimeType.trim() : "application/octet-stream";
+}
+
+async function resolveFfmpegPath(): Promise<string> {
+  const configured = process.env["MEETX_FFMPEG_PATH"]?.trim();
+  return configured !== undefined && configured.length > 0 ? configured : "ffmpeg";
+}
+
+async function ensureFastPlayableCopy(meeting: PrototypeMeeting): Promise<void> {
+  if (meeting.screenVideo !== true || meeting.mimeType.toLowerCase().startsWith("audio/")) return;
+  const outputPath = playableArtifactPath(meeting);
+  if (await stat(outputPath).then((fileInfo) => fileInfo.size > 0).catch(() => false)) return;
+  const ffmpegPath = await resolveFfmpegPath();
+  await execFileAsync(ffmpegPath, ["-y", "-hide_banner", "-loglevel", "error", "-i", meeting.artifactPath, "-c", "copy", outputPath], { timeout: 60_000, windowsHide: true });
 }
 
 function parseBooleanHeader(value: string | undefined): boolean | undefined {
@@ -151,6 +172,7 @@ export class PrototypeController {
     const screenVideo = parseBooleanHeader(screenVideoHeader);
     if (screenVideo !== undefined) uploadInput.screenVideo = screenVideo;
     const meeting = await saveUploadedMeeting(uploadInput);
+    await ensureFastPlayableCopy(meeting).catch(() => undefined);
     return { meetingId: meeting.id, detailUrl: `/meetings/${meeting.id}`, libraryUrl: "/library" };
   }
 
@@ -206,12 +228,14 @@ export class PrototypeController {
     const fileInfo = await stat(meeting.artifactPath).catch(() => undefined);
     if (fileInfo === undefined) throw new HttpException("Recording file not found", HttpStatus.NOT_FOUND);
 
-    const playablePath = playableArtifactPath(meeting);
-    const playableInfo = variant === "playable" ? await stat(playablePath).catch(() => undefined) : undefined;
-    const streamPath = playableInfo === undefined ? meeting.artifactPath : playablePath;
-    const streamInfo = playableInfo ?? fileInfo;
-    const streamMimeType = playableInfo === undefined ? playbackMimeType(meeting) : "video/mp4";
-    const streamExtension = playableInfo === undefined ? "webm" : "mp4";
+    const fastPlayablePath = playableArtifactPath(meeting);
+    const fastPlayableInfo = variant === "playable" ? await stat(fastPlayablePath).catch(() => undefined) : undefined;
+    const legacyMp4Path = legacyMp4ArtifactPath(meeting);
+    const legacyMp4Info = variant === "playable" && fastPlayableInfo === undefined ? await stat(legacyMp4Path).catch(() => undefined) : undefined;
+    const streamPath = fastPlayableInfo !== undefined ? fastPlayablePath : legacyMp4Info !== undefined ? legacyMp4Path : meeting.artifactPath;
+    const streamInfo = fastPlayableInfo ?? legacyMp4Info ?? fileInfo;
+    const streamMimeType = fastPlayableInfo !== undefined ? "video/webm" : legacyMp4Info !== undefined ? "video/mp4" : playbackMimeType(meeting);
+    const streamExtension: "webm" | "mp4" = legacyMp4Info === undefined ? "webm" : "mp4";
 
     response.setHeader("Content-Type", streamMimeType);
     response.setHeader("Accept-Ranges", "bytes");
@@ -285,7 +309,8 @@ export class PrototypeController {
     const failureHtml = meeting.processingError === undefined ? "" : `<div class="card"><h2>Processing setup needed</h2><p>${escapeHtml(meeting.processingError)}</p><code>MEETX_WHISPER_CLI_PATH=C:\\path\\to\\whisper-cli.exe\nMEETX_WHISPER_MODEL_PATH=C:\\path\\to\\ggml-base.bin or ggml-small.bin for Hindi\nMEETX_FFMPEG_PATH=C:\\path\\to\\ffmpeg.exe</code></div>`;
     const isAudioRecording = meeting.mimeType.toLowerCase().startsWith("audio/") || meeting.screenVideo !== true;
     const playableInfo = isAudioRecording ? undefined : await stat(playableArtifactPath(meeting)).catch(() => undefined);
-    const repairedCopyHtml = playableInfo === undefined ? "" : ` · playing repaired MP4 copy`;
+    const legacyMp4Info = isAudioRecording || playableInfo !== undefined ? undefined : await stat(legacyMp4ArtifactPath(meeting)).catch(() => undefined);
+    const repairedCopyHtml = playableInfo !== undefined ? ` · playing fast repaired WebM copy` : legacyMp4Info !== undefined ? ` · playing repaired MP4 copy` : ` · raw WebM may need repair`;
     const mediaPlayerHtml = isAudioRecording ? `<audio id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/recording"></audio><p class="mini">Audio-only recording. Enable Screen video in the desktop recorder when you need playback with visuals. <a href="/meetings/${escapeHtml(meeting.id)}/download">Download raw recording</a>.</p>` : `<video id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/playback"></video><p class="mini"><a href="/meetings/${escapeHtml(meeting.id)}/download">Download raw WebM</a>${repairedCopyHtml}</p>`;
     const transcriptHtml = meeting.transcript === undefined ? `<p>No real transcript yet. Click Process recording. If Whisper/FFmpeg are not configured, Meet-X will show setup instructions instead of fake transcript text.</p>` : meeting.transcript.map((segment) => `<article class="segment seekable-segment" data-start-ms="${String(segment.startMs)}" id="${escapeHtml(segment.segmentId)}"><div><strong>${escapeHtml(speakerDisplayName(segment.speakerId))}</strong><span>${formatTime(segment.startMs)}-${formatTime(segment.endMs)}</span></div><p>${escapeHtml(segment.text)}</p><small>${String(segment.words.length)} words - ${escapeHtml(segment.language)}</small></article>`).join("");
     const notesHtml = meeting.notes.length === 0 ? `<p>No timestamped notes yet. Play the recording, add a note, and Meet-X will save the current timestamp.</p>` : meeting.notes.sort((left, right) => left.timestampMs - right.timestampMs).map((note) => `<article class="segment"><div><strong>${escapeHtml(note.kind)}</strong><a class="seek-link" data-start-ms="${String(note.timestampMs)}" href="#">${formatTime(note.timestampMs)}</a></div><p>${escapeHtml(note.text)}</p><small>${escapeHtml(new Date(note.createdAt).toLocaleString())}</small></article>`).join("");
