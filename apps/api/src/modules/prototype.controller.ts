@@ -19,6 +19,16 @@ function formatTime(ms: number): string {
   return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
+function safeDownloadName(meeting: PrototypeMeeting): string {
+  const cleanTitle = meeting.title.replace(/[^a-z0-9-_]+/giu, "-").replace(/^-+|-+$/gu, "").slice(0, 80) || meeting.id;
+  return `${cleanTitle}.webm`;
+}
+
+function playbackMimeType(meeting: PrototypeMeeting): string {
+  const mimeType = meeting.mimeType.split(";")[0] ?? "";
+  return mimeType.trim().length > 0 ? mimeType.trim() : "application/octet-stream";
+}
+
 function parseBooleanHeader(value: string | undefined): boolean | undefined {
   const trimmed = value?.trim().toLowerCase();
   if (trimmed === undefined || trimmed.length === 0) return undefined;
@@ -173,14 +183,24 @@ export class PrototypeController {
   }
   @Get("/meetings/:id/recording")
   async recording(@Param("id") id: string, @Headers("range") rangeHeader: string | undefined, @Res() response: ServerResponse): Promise<void> {
+    await this.streamRecording(id, rangeHeader, response, "inline");
+  }
+
+  @Get("/meetings/:id/download")
+  async downloadRecording(@Param("id") id: string, @Headers("range") rangeHeader: string | undefined, @Res() response: ServerResponse): Promise<void> {
+    await this.streamRecording(id, rangeHeader, response, "attachment");
+  }
+
+  private async streamRecording(id: string, rangeHeader: string | undefined, response: ServerResponse, disposition: "inline" | "attachment"): Promise<void> {
     const meeting = await getPrototypeMeeting(id);
     if (meeting === undefined) throw new HttpException("Recording not found", HttpStatus.NOT_FOUND);
     const fileInfo = await stat(meeting.artifactPath).catch(() => undefined);
     if (fileInfo === undefined) throw new HttpException("Recording file not found", HttpStatus.NOT_FOUND);
 
-    response.setHeader("Content-Type", meeting.mimeType);
+    response.setHeader("Content-Type", playbackMimeType(meeting));
     response.setHeader("Accept-Ranges", "bytes");
     response.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    response.setHeader("Content-Disposition", `${disposition}; filename="${safeDownloadName(meeting)}"`);
 
     if (rangeHeader === undefined) {
       response.statusCode = 200;
@@ -197,11 +217,13 @@ export class PrototypeController {
       return;
     }
 
-    const requestedStart = match[1].length > 0 ? Number(match[1]) : 0;
-    const requestedEnd = match[2].length > 0 ? Number(match[2]) : fileInfo.size - 1;
+    const suffixLength = match[1].length === 0 && match[2].length > 0 ? Number(match[2]) : undefined;
+    const requestedStart = suffixLength === undefined ? (match[1].length > 0 ? Number(match[1]) : 0) : Math.max(0, fileInfo.size - suffixLength);
+    const requestedEnd = suffixLength === undefined && match[2].length > 0 ? Number(match[2]) : fileInfo.size - 1;
     const start = Math.max(0, Math.min(requestedStart, fileInfo.size - 1));
     const end = Math.max(start, Math.min(requestedEnd, fileInfo.size - 1));
     response.statusCode = 206;
+    response.setHeader("Content-Type", playbackMimeType(meeting));
     response.setHeader("Content-Range", `bytes ${String(start)}-${String(end)}/${String(fileInfo.size)}`);
     response.setHeader("Content-Length", String(end - start + 1));
     createReadStream(meeting.artifactPath, { start, end }).pipe(response);
@@ -246,7 +268,7 @@ export class PrototypeController {
     const metadataEditorHtml = `<details class="card subtle"><summary><strong>Edit meeting metadata</strong></summary><label>Meeting title</label><input id="editTitle" value="${escapeHtml(meeting.title)}" /><label>Audience / participants</label><textarea id="editAudience">${escapeHtml(meeting.audience.join(", "))}</textarea><label>Meeting URL</label><input id="editMeetingUrl" value="${escapeHtml(meeting.meetingUrl ?? "")}" /><label>Source app</label><input id="editSourceApp" value="${escapeHtml(meeting.sourceApp ?? "")}" /><p><button id="saveMetadataButton" class="secondary">Save metadata</button></p><p class="mini" id="metadataStatus">You can add or correct metadata after the recording.</p></details>`;
     const failureHtml = meeting.processingError === undefined ? "" : `<div class="card"><h2>Processing setup needed</h2><p>${escapeHtml(meeting.processingError)}</p><code>MEETX_WHISPER_CLI_PATH=C:\\path\\to\\whisper-cli.exe\nMEETX_WHISPER_MODEL_PATH=C:\\path\\to\\ggml-base.bin or ggml-small.bin for Hindi\nMEETX_FFMPEG_PATH=C:\\path\\to\\ffmpeg.exe</code></div>`;
     const isAudioRecording = meeting.mimeType.toLowerCase().startsWith("audio/") || meeting.screenVideo !== true;
-    const mediaPlayerHtml = isAudioRecording ? `<audio id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/recording"></audio><p class="mini">Audio-only recording. Enable Screen video in the desktop recorder when you need playback with visuals. <a href="/meetings/${escapeHtml(meeting.id)}/recording" download>Download raw recording</a>.</p>` : `<video id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/recording"></video>`;
+    const mediaPlayerHtml = isAudioRecording ? `<audio id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/recording"></audio><p class="mini">Audio-only recording. Enable Screen video in the desktop recorder when you need playback with visuals. <a href="/meetings/${escapeHtml(meeting.id)}/download">Download raw recording</a>.</p>` : `<video id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/recording"></video><p class="mini"><a href="/meetings/${escapeHtml(meeting.id)}/download">Download raw recording</a></p>`;
     const transcriptHtml = meeting.transcript === undefined ? `<p>No real transcript yet. Click Process recording. If Whisper/FFmpeg are not configured, Meet-X will show setup instructions instead of fake transcript text.</p>` : meeting.transcript.map((segment) => `<article class="segment seekable-segment" data-start-ms="${String(segment.startMs)}" id="${escapeHtml(segment.segmentId)}"><div><strong>${escapeHtml(speakerDisplayName(segment.speakerId))}</strong><span>${formatTime(segment.startMs)}-${formatTime(segment.endMs)}</span></div><p>${escapeHtml(segment.text)}</p><small>${String(segment.words.length)} words - ${escapeHtml(segment.language)}</small></article>`).join("");
     const notesHtml = meeting.notes.length === 0 ? `<p>No timestamped notes yet. Play the recording, add a note, and Meet-X will save the current timestamp.</p>` : meeting.notes.sort((left, right) => left.timestampMs - right.timestampMs).map((note) => `<article class="segment"><div><strong>${escapeHtml(note.kind)}</strong><a class="seek-link" data-start-ms="${String(note.timestampMs)}" href="#">${formatTime(note.timestampMs)}</a></div><p>${escapeHtml(note.text)}</p><small>${escapeHtml(new Date(note.createdAt).toLocaleString())}</small></article>`).join("");
     const summaryHtml = meeting.summary === undefined ? `<p>No summary yet. Summary is generated only after real transcription succeeds.</p>` : `<p><strong>Overview:</strong> ${escapeHtml(meeting.summary.tldr.text)} <a class="seek-link" data-start-ms="${String(meeting.summary.tldr.citation.startMs)}" href="#${escapeHtml(meeting.summary.tldr.citation.segmentId)}">${formatTime(meeting.summary.tldr.citation.startMs)}</a></p><h2>Key points</h2><ul>${meeting.summary.keyPoints.map((point) => `<li>${escapeHtml(point.text)} <a class="seek-link" data-start-ms="${String(point.citation.startMs)}" href="#${escapeHtml(point.citation.segmentId)}">${formatTime(point.citation.startMs)}</a></li>`).join("")}</ul><h2>Decisions</h2><ul>${meeting.summary.decisions.map((decision) => `<li>${escapeHtml(decision.text)} <a class="seek-link" data-start-ms="${String(decision.citation.startMs)}" href="#${escapeHtml(decision.citation.segmentId)}">${formatTime(decision.citation.startMs)}</a></li>`).join("")}</ul><h2>Action items / next steps</h2><ul>${meeting.summary.actionItems.map((item) => `<li><strong>${escapeHtml(speakerDisplayName(item.owner))}</strong>: ${escapeHtml(item.task)} <a class="seek-link" data-start-ms="${String(item.citation.startMs)}" href="#${escapeHtml(item.citation.segmentId)}">${formatTime(item.citation.startMs)}</a></li>`).join("")}</ul>`;
