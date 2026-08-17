@@ -87,8 +87,9 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
       .workspace small, p, li, td, th, dd { color: var(--muted); line-height: 1.55; }
       .nav { display: flex; align-items:center; padding: 12px 14px; color: #424245; text-decoration: none; border-radius: 16px; margin-bottom: 7px; font-weight: 700; transition: .18s ease; }
       .nav.active, .nav:hover { color: var(--ink); background: rgba(0,113,227,.1); }
-      .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
-      h1 { margin: 0 0 8px; font-size: clamp(36px, 5vw, 62px); line-height: .94; letter-spacing: -.07em; color: var(--ink); }
+      .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: flex-start; gap: 18px; margin-bottom: 18px; min-width: 0; }
+      .topbar-title { min-width: 0; max-width: 100%; }
+      h1 { margin: 0 0 8px; max-width: 100%; font-size: clamp(28px, 3.7vw, 52px); line-height: .96; letter-spacing: -.055em; color: var(--ink); overflow-wrap: anywhere; word-break: break-word; hyphens: auto; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
       h2 { margin: 0 0 14px; font-size: 24px; letter-spacing: -.04em; color: var(--ink); }
       h3 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.02em; color: var(--ink); }
       .eyebrow { color: var(--muted); font-size: 14px; font-weight: 700; }
@@ -124,9 +125,10 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
       dt { color:#424245; font-weight:800; }
       dd { margin:0; }
       .setting-row { display:grid; grid-template-columns: 1fr 1.4fr; gap:18px; padding:18px 0; border-top:1px solid var(--line); align-items:start; }
-      .pill-row { display:flex; flex-wrap:wrap; gap:10px; }
+      .pill-row { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; min-width: max-content; }
       .mini { font-size:13px; color:var(--muted); }
-      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { display: none; } main { padding: 16px; } .grid, .two, .setting-row { grid-template-columns: 1fr; } h1 { font-size: 46px; } }
+      @media (max-width: 1100px) { .topbar { grid-template-columns: 1fr; } .pill-row { min-width: 0; justify-content:flex-start; } }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { display: none; } main { padding: 16px; } .grid, .two, .setting-row { grid-template-columns: 1fr; } h1 { font-size: clamp(26px, 8vw, 42px); -webkit-line-clamp: 4; } }
     </style>
   </head>
   <body>
@@ -142,7 +144,7 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
         <form class="inline" method="post" action="/api/auth/logout"><button class="secondary" style="margin-top:16px">Log out</button></form>
       </aside>
       <main>
-        <div class="topbar"><div><h1>${escapeHtml(input.title)}</h1><div class="eyebrow">Personal meeting intelligence, running locally first.</div></div><div class="pill-row"><button id="desktopAppButton" class="secondary" type="button">Open desktop app</button><a class="button" href="/recorder">New recording</a></div></div>        <div class="content-scroll">${input.body}</div>
+        <div class="topbar"><div class="topbar-title"><h1>${escapeHtml(input.title)}</h1><div class="eyebrow">Personal meeting intelligence, running locally first.</div></div><div class="pill-row"><button id="desktopAppButton" class="secondary" type="button">Open desktop app</button><a class="button" href="/recorder">New recording</a></div></div>        <div class="content-scroll">${input.body}</div>
       </main>
     </div>
     <script>
