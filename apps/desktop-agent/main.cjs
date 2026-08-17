@@ -180,6 +180,7 @@ async function uploadRecording(capture) {
       "X-Local-User-Name": cleanHeader(capture.metadata.localUserName || "You"),
       "X-Microphone-Captured": capture.metadata.microphone ? "1" : "0",
       "X-System-Audio-Captured": capture.metadata.systemAudio ? "1" : "0",
+      "X-Screen-Video-Captured": capture.metadata.screenVideo ? "1" : "0",
       "X-File-Name": cleanHeader(path.basename(capture.filePath))
     };
     const request = transport.request(target, { method: "POST", headers }, (response) => readJsonResponse(response, resolve, reject));

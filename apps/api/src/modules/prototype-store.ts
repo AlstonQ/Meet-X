@@ -1,12 +1,14 @@
-﻿import { createReadStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { StreamableFile } from "@nestjs/common";
 import type { MeetingSummary, TranscriptSegment } from "@meet-x/transcription";
 
-const storeRoot = join(process.cwd(), "data", "prototype");
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const storeRoot = join(moduleDir, "..", "..", "data", "prototype");
 const uploadsRoot = join(storeRoot, "uploads");
 const indexPath = join(storeRoot, "meetings.json");
 const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -28,6 +30,7 @@ export type PrototypeMeeting = {
   localUserName?: string;
   microphone?: boolean;
   systemAudio?: boolean;
+  screenVideo?: boolean;
   status: "uploaded" | "processing" | "processed" | "processing_failed";
   processingError?: string;
   createdAt: string;
@@ -115,6 +118,9 @@ function normalizeMeeting(value: unknown): PrototypeMeeting | undefined {
   if (typeof record.systemAudio === "boolean") {
     meeting.systemAudio = record.systemAudio;
   }
+  if (typeof record.screenVideo === "boolean") {
+    meeting.screenVideo = record.screenVideo;
+  }
   if (typeof record.processingError === "string" && record.processingError.length > 0) {
     meeting.processingError = record.processingError;
   }
@@ -165,6 +171,7 @@ export async function saveUploadedMeeting(input: {
   localUserName?: string;
   microphone?: boolean;
   systemAudio?: boolean;
+  screenVideo?: boolean;
   originalFileName: string;
   mimeType: string;
 }): Promise<PrototypeMeeting> {
@@ -219,6 +226,9 @@ export async function saveUploadedMeeting(input: {
   }
   if (input.systemAudio !== undefined) {
     meeting.systemAudio = input.systemAudio;
+  }
+  if (input.screenVideo !== undefined) {
+    meeting.screenVideo = input.screenVideo;
   }
 
   const meetings = await readMeetings();
