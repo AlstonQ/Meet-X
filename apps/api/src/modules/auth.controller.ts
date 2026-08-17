@@ -109,7 +109,8 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
       .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #eef7f3; border: 1px solid rgba(36,197,143,.2); color: #147a5a; font-size: 12px; font-weight: 800; text-transform: uppercase; }
       .status.warn { background:#fff7e8; border-color:#f1cf8b; color:#946200; }
       .status.blue { background:var(--accent-soft); border-color:rgba(0,113,227,.16); color:#0756a5; }
-      video { width: 100%; border-radius: 24px; background: #000; box-shadow: 0 18px 50px rgba(0,0,0,.12); }
+      video, audio { width: 100%; border-radius: 24px; background: #000; box-shadow: 0 18px 50px rgba(0,0,0,.12); }
+      audio { background: rgba(255,255,255,.84); padding: 12px; }
       .segment { border: 1px solid var(--line); border-radius: 22px; padding: 16px; margin-bottom: 12px; background: rgba(255,255,255,.72); }
       .segment:target { outline: 3px solid rgba(0,113,227,.24); background: #fff; }
       .segment div { display: flex; justify-content: space-between; gap: 12px; color: var(--ink); }
