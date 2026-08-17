@@ -1,14 +1,13 @@
 import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { StreamableFile } from "@nestjs/common";
 import type { MeetingSummary, TranscriptSegment } from "@meet-x/transcription";
 
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-const storeRoot = join(moduleDir, "..", "..", "data", "prototype");
+const apiRoot = basename(process.cwd()) === "api" ? process.cwd() : join(process.cwd(), "apps", "api");
+const storeRoot = join(apiRoot, "data", "prototype");
 const uploadsRoot = join(storeRoot, "uploads");
 const indexPath = join(storeRoot, "meetings.json");
 const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -137,7 +136,7 @@ async function readMeetings(): Promise<PrototypeMeeting[]> {
   await ensureStore();
   try {
     const raw = await readFile(indexPath, "utf8");
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown;
     if (!Array.isArray(parsed)) {
       return [];
     }
