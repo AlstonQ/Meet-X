@@ -84,20 +84,25 @@ function recordingRoot() {
 async function listDisplaySources() {
   const sources = await desktopCapturer.getSources({
     types: ["screen", "window"],
-    thumbnailSize: { width: 0, height: 0 },
+    thumbnailSize: { width: 320, height: 180 },
     fetchWindowIcons: false
   });
-  appendDebugLog("desktopCapturer returned " + String(sources.length) + " source(s): " + sources.map((source) => source.id + "=" + source.name).join(" | "));
-  return sources
-    .filter((source) => !source.name.toLowerCase().includes("meet-x desktop recorder"))
-    .map((source) => ({
-      id: source.id,
-      name: source.name,
-      kind: source.id.startsWith("screen:") ? "screen" : "window",
-      thumbnail: ""
-    }));
+  const filteredSources = sources.filter((source) => !source.name.toLowerCase().includes("meet-x desktop recorder"));
+  appendDebugLog(
+    "desktopCapturer returned "
+      + String(sources.length)
+      + " raw source(s), "
+      + String(filteredSources.length)
+      + " usable source(s): "
+      + sources.map((source) => source.id + "=" + source.name).join(" | ")
+  );
+  return filteredSources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    kind: source.id.startsWith("screen:") ? "screen" : "window",
+    thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : ""
+  }));
 }
-
 function cleanHeader(value) {
   return encodeURIComponent(String(value || "").replace(/[\r\n]/gu, " ").trim().slice(0, 4000));
 }

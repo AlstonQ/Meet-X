@@ -15,6 +15,7 @@ const elements = {
   displaySource: document.getElementById("displaySource"),
   displaySourceSelect: document.getElementById("displaySourceSelect"),
   displaySourceGrid: document.getElementById("displaySourceGrid"),
+  displaySourceHint: document.getElementById("displaySourceHint"),
   refreshSourcesButton: document.getElementById("refreshSourcesButton"),
   disclosureAcknowledged: document.getElementById("disclosureAcknowledged"),
   transcriptionMode: document.getElementById("transcriptionMode"),
@@ -185,7 +186,7 @@ function updateStartAvailability() {
   } else if (!recordingSessionId && !hasCaptureSource) {
     setStatus("error", "Choose a capture source", "Enable system audio, microphone, screen video, or a combination.");
   } else if (!recordingSessionId && displaySourceMissing) {
-    setStatus("error", "Choose a screen or window", "Select one of the screen/window cards above before recording.");
+    setStatus("error", "Choose a screen or window", "Select one screen/window from the dropdown or cards above before recording.");
   } else if (!recordingSessionId && liveNeedsAudio) {
     setStatus("error", "Live transcript needs audio", "Enable system audio or microphone, or choose post-recording processing.");
   } else if (!recordingSessionId) {
