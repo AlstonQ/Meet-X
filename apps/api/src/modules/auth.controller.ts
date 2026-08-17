@@ -76,25 +76,28 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
     <style>
       :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, "Segoe UI", sans-serif; color: #1d1d1f; background: #f5f5f7; --ink:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.08); --panel:rgba(255,255,255,.78); --panel-strong:#fff; --accent:#0071e3; --accent-soft:#e8f2ff; --green:#24c58f; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 16% 0%, rgba(0,113,227,.12), transparent 32rem), radial-gradient(circle at 100% 0%, rgba(36,197,143,.12), transparent 26rem), #f5f5f7; }
-      .layout { display: grid; grid-template-columns: 272px 1fr; min-height: 100vh; }
-      aside { border-right: 1px solid var(--line); background: rgba(255,255,255,.64); backdrop-filter: blur(24px); padding: 24px; position: sticky; top: 0; height: 100vh; }
-      main { padding: 34px clamp(24px, 4vw, 58px); }
+      body { margin: 0; height: 100dvh; overflow: hidden; background: radial-gradient(circle at 16% 0%, rgba(0,113,227,.12), transparent 32rem), radial-gradient(circle at 100% 0%, rgba(36,197,143,.12), transparent 26rem), #f5f5f7; }
+      .layout { display: grid; grid-template-columns: 272px minmax(0, 1fr); height: 100dvh; overflow: hidden; }
+      aside { border-right: 1px solid var(--line); background: rgba(255,255,255,.64); backdrop-filter: blur(24px); padding: 24px; height: 100dvh; overflow: auto; }
+      main { height: 100dvh; min-width: 0; overflow: hidden; padding: 24px clamp(18px, 3vw, 42px); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+      .content-scroll { min-height: 0; overflow: auto; padding-right: 8px; }
       .brand { font-size: 25px; font-weight: 800; letter-spacing: -.035em; margin-bottom: 22px; color: var(--ink); }
       .workspace { border: 1px solid var(--line); border-radius: 22px; padding: 15px; background: rgba(255,255,255,.74); box-shadow: 0 10px 30px rgba(0,0,0,.04); margin-bottom: 20px; }
       .workspace strong { display: block; font-size: 15px; letter-spacing: -.01em; }
       .workspace small, p, li, td, th, dd { color: var(--muted); line-height: 1.55; }
       .nav { display: flex; align-items:center; padding: 12px 14px; color: #424245; text-decoration: none; border-radius: 16px; margin-bottom: 7px; font-weight: 700; transition: .18s ease; }
       .nav.active, .nav:hover { color: var(--ink); background: rgba(0,113,227,.1); }
-      .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 26px; }
-      h1 { margin: 0 0 8px; font-size: clamp(42px, 6vw, 76px); line-height: .94; letter-spacing: -.07em; color: var(--ink); }
+      .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+      h1 { margin: 0 0 8px; font-size: clamp(36px, 5vw, 62px); line-height: .94; letter-spacing: -.07em; color: var(--ink); }
       h2 { margin: 0 0 14px; font-size: 24px; letter-spacing: -.04em; color: var(--ink); }
       h3 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.02em; color: var(--ink); }
       .eyebrow { color: var(--muted); font-size: 14px; font-weight: 700; }
-      .card { border: 1px solid var(--line); border-radius: 30px; background: var(--panel); box-shadow: 0 24px 70px rgba(0,0,0,.07); padding: 26px; margin-bottom: 20px; backdrop-filter: blur(22px); }
+      .card { border: 1px solid var(--line); border-radius: 30px; background: var(--panel); box-shadow: 0 24px 70px rgba(0,0,0,.07); padding: 22px; margin-bottom: 16px; backdrop-filter: blur(22px); }
       .card.subtle { box-shadow: none; background: rgba(255,255,255,.56); }
       .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-      .two { display: grid; grid-template-columns: .9fr 1.1fr; gap: 20px; align-items: start; }
+      .two { display: grid; grid-template-columns: .9fr 1.1fr; gap: 20px; align-items: stretch; min-height: 0; }
+      .two > .card { max-height: calc(100dvh - 190px); overflow: auto; }
+      .card:has(table) { overflow: auto; }
       .metric { font-size: 46px; font-weight: 800; letter-spacing: -.055em; color: var(--ink); }
       .button, button { display: inline-flex; align-items:center; justify-content:center; border: 0; border-radius: 999px; padding: 12px 18px; background: var(--accent); color: #fff; font-weight: 750; cursor: pointer; text-decoration: none; box-shadow: 0 10px 24px rgba(0,113,227,.2); }
       .button.secondary, button.secondary { background: rgba(0,0,0,.06); color: var(--ink); box-shadow: none; }
@@ -122,7 +125,7 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
       .setting-row { display:grid; grid-template-columns: 1fr 1.4fr; gap:18px; padding:18px 0; border-top:1px solid var(--line); align-items:start; }
       .pill-row { display:flex; flex-wrap:wrap; gap:10px; }
       .mini { font-size:13px; color:var(--muted); }
-      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { position: static; height: auto; } main { padding: 22px; } .grid, .two, .setting-row { grid-template-columns: 1fr; } h1 { font-size: 46px; } }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { display: none; } main { padding: 16px; } .grid, .two, .setting-row { grid-template-columns: 1fr; } h1 { font-size: 46px; } }
     </style>
   </head>
   <body>
@@ -138,8 +141,7 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
         <form class="inline" method="post" action="/api/auth/logout"><button class="secondary" style="margin-top:16px">Log out</button></form>
       </aside>
       <main>
-        <div class="topbar"><div><h1>${escapeHtml(input.title)}</h1><div class="eyebrow">Personal meeting intelligence, running locally first.</div></div><div class="pill-row"><button id="desktopAppButton" class="secondary" type="button">Open desktop app</button><a class="button" href="/recorder">New recording</a></div></div>
-        ${input.body}
+        <div class="topbar"><div><h1>${escapeHtml(input.title)}</h1><div class="eyebrow">Personal meeting intelligence, running locally first.</div></div><div class="pill-row"><button id="desktopAppButton" class="secondary" type="button">Open desktop app</button><a class="button" href="/recorder">New recording</a></div></div>        <div class="content-scroll">${input.body}</div>
       </main>
     </div>
     <script>

@@ -1,4 +1,4 @@
-﻿import { execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -162,6 +162,47 @@ function makeTextSegmentId(index: number): string {
   return makeSegmentId(index + 100);
 }
 
+type WhisperCaptionBlock = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
+
+function parseSrtTimestamp(value: string): number | undefined {
+  const match = /^(\d{2}):(\d{2}):(\d{2}),(\d{3})$/u.exec(value.trim());
+  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined || match[4] === undefined) return undefined;
+  return Number(match[1]) * 3_600_000 + Number(match[2]) * 60_000 + Number(match[3]) * 1000 + Number(match[4]);
+}
+
+function parseWhisperSrt(raw: string): WhisperCaptionBlock[] {
+  return raw
+    .split(/\r?\n\r?\n/u)
+    .map((block) => {
+      const lines = block.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line.length > 0);
+      const timingIndex = lines.findIndex((line) => line.includes(" --> "));
+      const timing = timingIndex >= 0 ? lines[timingIndex] : undefined;
+      if (timing === undefined) return undefined;
+      const [rawStart, rawEnd] = timing.split(" --> ");
+      if (rawStart === undefined || rawEnd === undefined) return undefined;
+      const startMs = parseSrtTimestamp(rawStart);
+      const endMs = parseSrtTimestamp(rawEnd);
+      const text = lines.slice(timingIndex + 1).join(" ").replace(/<[^>]+>/gu, "").replace(/\s+/gu, " ").trim();
+      if (startMs === undefined || endMs === undefined || endMs <= startMs || text.length === 0) return undefined;
+      return { text, startMs, endMs };
+    })
+    .filter((block): block is WhisperCaptionBlock => block !== undefined);
+}
+
+function isLowInformationTranscript(lines: string[]): boolean {
+  const joined = normalizeSpeechText(lines.join(" "));
+  const tokens = joined.split(" ").filter((token) => token.length > 0);
+  if (tokens.length < 3) return true;
+  const unique = new Set(tokens);
+  const averageTokenLength = tokens.reduce((total, token) => total + token.length, 0) / tokens.length;
+  const letterRatio = joined.length === 0 ? 0 : (joined.match(/[\p{L}\p{N}]/gu)?.length ?? 0) / joined.length;
+  return unique.size <= 2 || averageTokenLength < 2.2 || letterRatio < 0.55;
+}
+
 
 function normalizeSpeechText(text: string): string {
   return text.toLowerCase().replace(/[\p{P}\p{S}]/gu, " ").replace(/\s+/gu, " ").trim();
@@ -243,6 +284,22 @@ export function speakerIdForTranscriptTurn(index: number, speakerHints: Transcri
   return `speaker_${index % 2 === 0 ? "1" : "2"}`;
 }
 
+function segmentsFromCaptionBlocks(meetingId: string, captions: WhisperCaptionBlock[], language: string, speakerHints?: TranscriptionInput["speakerHints"]): TranscriptSegment[] {
+  return captions.map((caption, index) => {
+    const words = wordsFor(caption.text, caption.startMs).map((word) => ({ ...word, endMs: Math.min(word.endMs, caption.endMs) }));
+    return transcriptSegmentSchema.parse({
+      segmentId: makeTextSegmentId(index),
+      meetingId,
+      speakerId: speakerIdForTranscriptTurn(index, speakerHints),
+      language,
+      startMs: caption.startMs,
+      endMs: caption.endMs,
+      text: caption.text,
+      words
+    });
+  });
+}
+
 function segmentsFromPlainText(meetingId: string, text: string, language: string, speakerHints?: TranscriptionInput["speakerHints"]): TranscriptSegment[] {
   const paragraphs = text
     .split(/\r?\n/u)
@@ -250,23 +307,13 @@ function segmentsFromPlainText(meetingId: string, text: string, language: string
     .filter((line) => line.length > 0);
 
   const usableParagraphs = paragraphs.length > 0 ? paragraphs : [text.trim()].filter((line) => line.length > 0);
-  return usableParagraphs.map((paragraph, index) => {
-    const startMs = index * 15_000;
-    const words = wordsFor(paragraph, startMs);
-    const lastWord = words.at(-1);
-    return transcriptSegmentSchema.parse({
-      segmentId: makeTextSegmentId(index),
-      meetingId,
-      speakerId: speakerIdForTranscriptTurn(index, speakerHints),
-      language,
-      startMs,
-      endMs: lastWord?.endMs ?? startMs + 1000,
-      text: paragraph,
-      words
-    });
-  });
+  return segmentsFromCaptionBlocks(
+    meetingId,
+    usableParagraphs.map((paragraph, index) => ({ text: paragraph, startMs: index * 15_000, endMs: index * 15_000 + Math.max(1200, paragraph.split(/\s+/u).length * 420) })),
+    language,
+    speakerHints
+  );
 }
-
 export class LocalWhisperTranscriptionProvider implements TranscriptionProvider {
   async transcribe(input: TranscriptionInput): Promise<TranscriptionResult> {
     const parsed = transcriptionInputSchema.parse(input);
@@ -304,6 +351,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
         "-f",
         wavPath,
         "-otxt",
+        "-osrt",
         "-of",
         outputBase,
         ...languageArgs,
@@ -318,6 +366,11 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
         throw new Error("Whisper produced an empty transcript.");
       }
       const transcriptLines = assertContainsSpeech(transcriptText, parsed.allowShortUtterances === true);
+      if (isLowInformationTranscript(transcriptLines)) {
+        throw new Error("Whisper produced a low-information transcript. Check that Meet-X captured the meeting audio clearly, then retry with English or Hindi selected explicitly.");
+      }
+      const srtText = await readFile(`${outputBase}.srt`, "utf8").catch(() => "");
+      const captionBlocks = parseWhisperSrt(srtText).filter((caption) => transcriptLines.some((line) => normalizeSpeechText(line) === normalizeSpeechText(caption.text)) || isLikelySpeech(caption.text));
 
       const autoDetection = languageHint === "auto" ? parseWhisperDetectedLanguage(`${whisperResult.stdout}\n${whisperResult.stderr}`) : undefined;
       if (autoDetection !== undefined && !["en", "hi"].includes(autoDetection.language)) {
@@ -327,7 +380,7 @@ export class LocalWhisperTranscriptionProvider implements TranscriptionProvider 
       return transcriptionResultSchema.parse({
         provider: "local-whisper.cpp",
         detectedLanguage,
-        segments: segmentsFromPlainText(parsed.meetingId, transcriptLines.join("\n"), detectedLanguage, parsed.speakerHints)
+        segments: captionBlocks.length > 0 ? segmentsFromCaptionBlocks(parsed.meetingId, captionBlocks, detectedLanguage, parsed.speakerHints) : segmentsFromPlainText(parsed.meetingId, transcriptLines.join("\n"), detectedLanguage, parsed.speakerHints)
       });
     } finally {
       await rm(workDir, { recursive: true, force: true });

@@ -92,23 +92,49 @@ function hasNamedOwner(segment: TranscriptSegment): boolean {
   return ownerFor(segment) !== segment.speakerId;
 }
 
+function stripLeadingPlanningPhrase(text: string): string {
+  return text
+    .replace(/^we\s+(?:need to|should|must|will|are going to|have to)\s+/iu, "")
+    .replace(/^i\s+(?:need to|should|must|will|am going to|have to)\s+/iu, "")
+    .trim();
+}
+
 function asOutcome(segment: TranscriptSegment): string {
   const text = cleanSummaryText(segment.text);
-  if (/\b(decision|decided|agreed|approved|confirmed)\b/iu.test(segment.text)) return sentenceCase(text);
-  return "The team aligned that " + text.replace(/^we\s+/iu, "they ").replace(/^i\s+/iu, "the speaker ");
+  if (/\b(decision|decided|agreed|approved|confirmed)\b/iu.test(segment.text)) return "Decision: " + sentenceCase(text);
+  if (/\b(need to|must|should|priority|launch|ship|chosen|choose|use)\b/iu.test(segment.text)) return "Priority: " + sentenceCase(stripLeadingPlanningPhrase(text));
+  return "Direction: " + sentenceCase(text);
 }
 
 function asKeyPoint(segment: TranscriptSegment): string {
   const text = cleanSummaryText(segment.text);
-  if (/\b(risk|blocker|issue|problem)\b/iu.test(segment.text)) return "Risk to track: " + text;
-  if (/\b(customer|requirement|deadline|timeline|budget|pricing|proposal|launch|ship)\b/iu.test(segment.text)) return "Important context: " + text;
-  return sentenceCase(text);
+  if (/\b(risk|blocker|issue|problem|depends on|concern)\b/iu.test(segment.text)) return "Risk: " + sentenceCase(text.replace(/^risk\s*:\s*/iu, ""));
+  if (/\b(customer|requirement|deadline|timeline|budget|pricing|proposal|rfp|launch|ship)\b/iu.test(segment.text)) return "Context: " + sentenceCase(text);
+  if (/\b(need to|must|should|priority)\b/iu.test(segment.text)) return "Priority: " + sentenceCase(stripLeadingPlanningPhrase(text));
+  return "Observation: " + sentenceCase(text);
 }
 
 function asActionTask(segment: TranscriptSegment): string {
   const text = cleanSummaryText(segment.text);
-  const withoutOwner = text.replace(/^([A-Z][a-zA-Z]{1,30})\s+(?:will|to|needs to|should|can)\s+/u, "");
+  const withoutOwner = text
+    .replace(/^([A-Z][a-zA-Z]{1,30})\s+(?:will|to|needs to|should|can)\s+/u, "")
+    .replace(/^action item\s*:\s*/iu, "")
+    .replace(/^we\s+(?:need to|should|must|will)\s+/iu, "")
+    .trim();
   return sentenceCase(withoutOwner);
+}
+
+function composeExecutiveSummary(input: { keyPoints: z.infer<typeof citedTextSchema>[]; decisions: z.infer<typeof citedTextSchema>[]; actionItems: MeetingSummary["actionItems"]; fallback: TranscriptSegment }): z.infer<typeof citedTextSchema> {
+  const firstDecision = input.decisions[0];
+  const firstAction = input.actionItems[0];
+  const firstPoint = input.keyPoints[0];
+  if (firstDecision !== undefined && firstAction !== undefined) {
+    return { text: `${firstDecision.text} Next step: ${firstAction.owner} to ${firstAction.task.charAt(0).toLowerCase() + firstAction.task.slice(1)}`, citation: firstDecision.citation };
+  }
+  if (firstDecision !== undefined) return firstDecision;
+  if (firstAction !== undefined) return { text: `Next step: ${firstAction.owner} to ${firstAction.task.charAt(0).toLowerCase() + firstAction.task.slice(1)}`, citation: firstAction.citation };
+  if (firstPoint !== undefined) return firstPoint;
+  return { text: "Discussion focus: " + cleanSummaryText(input.fallback.text), citation: citationFor(input.fallback) };
 }
 
 export function summarizeWithCitations(segments: TranscriptSegment[]): MeetingSummary {
@@ -131,7 +157,7 @@ export function summarizeWithCitations(segments: TranscriptSegment[]): MeetingSu
     text: asKeyPoint(segment),
     citation: citationFor(segment)
   }));
-  const tldrSource = decisions[0] ?? keyPoints[0] ?? { text: "The meeting centered on " + cleanSummaryText(firstSegment.text), citation: citationFor(firstSegment) };
+  const tldrSource = composeExecutiveSummary({ keyPoints, decisions, actionItems, fallback: firstSegment });
 
   return meetingSummarySchema.parse({
     tldr: tldrSource,
