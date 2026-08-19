@@ -127,6 +127,17 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
       .setting-row { display:grid; grid-template-columns: 1fr 1.4fr; gap:18px; padding:18px 0; border-top:1px solid var(--line); align-items:start; }
       .pill-row { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; min-width: max-content; }
       .mini { font-size:13px; color:var(--muted); }
+      .intel-stack { display:grid; gap:18px; }
+      .task-list { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+      .task-item { border:1px solid var(--line); border-radius:18px; padding:12px; background:rgba(255,255,255,.62); }
+      .task-item.done { opacity:.62; }
+      .task-item.done strong, .task-item.done span { text-decoration: line-through; }
+      .task-check { display:flex; gap:12px; align-items:flex-start; margin:0; color:var(--ink); font-size:15px; }
+      .task-check input { width:auto; margin-top:4px; accent-color:var(--accent); }
+      .task-check small { display:block; margin-top:4px; }
+      .followup pre { white-space:pre-wrap; word-break:break-word; border-radius:18px; padding:14px; background:rgba(0,0,0,.045); color:#424245; font:inherit; }
+      .ask-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; }
+      .answer-box { margin-top:12px; border:1px solid var(--line); border-radius:18px; padding:12px; background:rgba(255,255,255,.58); min-height:54px; }
       @media (max-width: 1100px) { .topbar { grid-template-columns: 1fr; } .pill-row { min-width: 0; justify-content:flex-start; } }
       @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { display: none; } main { padding: 16px; } .grid, .two, .setting-row { grid-template-columns: 1fr; } h1 { font-size: clamp(26px, 8vw, 42px); -webkit-line-clamp: 4; } }
     </style>
@@ -241,5 +252,7 @@ export class AuthController {
     return "";
   }
 }
+
+
 
 

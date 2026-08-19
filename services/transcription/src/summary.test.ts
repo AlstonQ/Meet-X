@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { LocalFixtureTranscriptionProvider } from "./transcription-provider.js";
 import { summarizeWithCitations } from "./summary.js";
 
@@ -18,6 +18,10 @@ describe("summarizeWithCitations", () => {
     expect(summary.keyPoints.every((point) => point.citation.segmentId.startsWith("seg_"))).toBe(true);
     expect(summary.decisions[0]?.citation.segmentId).toMatch(/^seg_/u);
     expect(summary.actionItems[0]?.citation.segmentId).toMatch(/^seg_/u);
+    expect(summary.actionItems[0]?.completed).toBe(false);
+    expect(summary.actionItems[0]?.priority).toBeTruthy();
+    expect(summary.followUpDraft.body).toContain("Next steps");
+    expect(summary.risks.every((risk) => risk.citation.segmentId.startsWith("seg_"))).toBe(true);
   });
 
   it("creates useful cited sections without explicit labels", () => {
@@ -54,3 +58,4 @@ describe("summarizeWithCitations", () => {
     expect(() => summarizeWithCitations([])).toThrow("empty transcript");
   });
 });
+

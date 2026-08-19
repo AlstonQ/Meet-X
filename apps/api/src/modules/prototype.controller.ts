@@ -41,7 +41,7 @@ function playbackMimeType(meeting: PrototypeMeeting): string {
   return mimeType.trim().length > 0 ? mimeType.trim() : "application/octet-stream";
 }
 
-async function resolveFfmpegPath(): Promise<string> {
+function resolveFfmpegPath(): string {
   const configured = process.env["MEETX_FFMPEG_PATH"]?.trim();
   return configured !== undefined && configured.length > 0 ? configured : "ffmpeg";
 }
@@ -50,7 +50,7 @@ async function ensureFastPlayableCopy(meeting: PrototypeMeeting): Promise<void> 
   if (meeting.screenVideo !== true || meeting.mimeType.toLowerCase().startsWith("audio/")) return;
   const outputPath = playableArtifactPath(meeting);
   if (await stat(outputPath).then((fileInfo) => fileInfo.size > 0).catch(() => false)) return;
-  const ffmpegPath = await resolveFfmpegPath();
+  const ffmpegPath = resolveFfmpegPath();
   await execFileAsync(ffmpegPath, ["-y", "-hide_banner", "-loglevel", "error", "-i", meeting.artifactPath, "-c", "copy", outputPath], { timeout: 60_000, windowsHide: true });
 }
 
@@ -77,8 +77,87 @@ function parseHeaderList(value: string | undefined): string[] {
 type MeetingMetadataBody = { title?: string; audience?: string; meetingUrl?: string; sourceApp?: string };
 type ProcessMeetingBody = { languageHint?: string };
 type MeetingNoteBody = { text?: string; timestampMs?: number; kind?: PrototypeNote["kind"] };
+type ActionItemStatusBody = { completed?: boolean };
+type AskMeetingBody = { question?: string };
 
 const processingMeetings = new Set<string>();
+type ProcessStatusPayload = {
+  meetingId: string;
+  status: PrototypeMeeting["status"] | "processing_interrupted";
+  transcriptCount: number;
+  summaryReady: boolean;
+  processingError?: string;
+};
+
+function processStatusFor(meeting: PrototypeMeeting): ProcessStatusPayload {
+  const status = meeting.status === "processing" && !processingMeetings.has(meeting.id) ? "processing_interrupted" : meeting.status;
+  const payload: ProcessStatusPayload = {
+    meetingId: meeting.id,
+    status,
+    transcriptCount: meeting.transcript?.length ?? 0,
+    summaryReady: meeting.summary !== undefined
+  };
+  if (meeting.processingError !== undefined) payload.processingError = meeting.processingError;
+  return payload;
+}
+
+async function runMeetingProcessing(id: string, languageHint: string): Promise<void> {
+  const meeting = await getPrototypeMeeting(id);
+  if (meeting === undefined) {
+    processingMeetings.delete(id);
+    return;
+  }
+
+  const processingMeeting: PrototypeMeeting = { ...meeting, status: "processing" };
+  delete processingMeeting.processingError;
+  await updatePrototypeMeeting(processingMeeting);
+  try {
+    const transcript = await new LocalWhisperTranscriptionProvider().transcribe({
+      meetingId: processingMeeting.id,
+      audioUrl: "/meetings/" + processingMeeting.id + "/recording",
+      localMediaPath: processingMeeting.artifactPath,
+      languageHint,
+      speakerHints: { localUserName: processingMeeting.localUserName, microphone: processingMeeting.microphone, systemAudio: processingMeeting.systemAudio }
+    });
+    const updated: PrototypeMeeting = { ...processingMeeting, status: "processed", transcript: transcript.segments, summary: summarizeWithCitations(transcript.segments) };
+    await updatePrototypeMeeting(updated);
+  } catch (error) {
+    const message = error instanceof LocalWhisperUnavailableError ? error.message + " Configure MEETX_WHISPER_CLI_PATH, MEETX_WHISPER_MODEL_PATH, and MEETX_FFMPEG_PATH to process real audio." : error instanceof Error ? error.message : "Unknown transcription failure.";
+    const latest = await getPrototypeMeeting(id);
+    const updated: PrototypeMeeting = { ...(latest ?? meeting), status: "processing_failed", processingError: message };
+    await updatePrototypeMeeting(updated);
+  } finally {
+    processingMeetings.delete(id);
+  }
+}
+
+function normalizeQuestion(value: string | undefined): string {
+  return value?.trim().slice(0, 240) ?? "";
+}
+
+function scoreSegmentForQuestion(segment: NonNullable<PrototypeMeeting["transcript"]>[number], question: string): number {
+  const terms = question.toLowerCase().split(/[^a-z0-9\p{L}]+/u).filter((term) => term.length > 2);
+  const text = segment.text.toLowerCase();
+  return terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+}
+
+function answerMeetingQuestion(meeting: PrototypeMeeting, question: string): { answer: string; citations: Array<{ segmentId: string; startMs: number; endMs: number; text: string }> } {
+  const transcript = meeting.transcript ?? [];
+  if (transcript.length === 0) {
+    return { answer: "I need a completed transcript before I can answer questions about this meeting.", citations: [] };
+  }
+  const ranked = transcript
+    .map((segment) => ({ segment, score: scoreSegmentForQuestion(segment, question) }))
+    .sort((left, right) => right.score - left.score || left.segment.startMs - right.segment.startMs)
+    .slice(0, 4)
+    .map((item) => item.segment);
+  const useful = ranked.length > 0 ? ranked : transcript.slice(0, 4);
+  const answer = `Based on ${String(useful.length)} cited moment${useful.length === 1 ? "" : "s"}, the meeting indicates: ${useful.map((segment) => segment.text).join(" ")}`;
+  return {
+    answer,
+    citations: useful.map((segment) => ({ segmentId: segment.segmentId, startMs: segment.startMs, endMs: segment.endMs, text: segment.text }))
+  };
+}
 
 function decodeMetadataHeader(value: string | undefined, encoded: string | undefined): string | undefined {
   if (value === undefined || encoded !== "1") return value;
@@ -138,6 +217,29 @@ function renderMeetingRow(meeting: PrototypeMeeting): string {
   return `<tr><td><a href="/meetings/${escapeHtml(meeting.id)}">${escapeHtml(meeting.title)}</a><br><small>${escapeHtml(meeting.id)}</small></td><td><span class="${statusClass(meeting.status)}">${escapeHtml(meeting.status.replaceAll("_", " "))}</span></td><td>${escapeHtml(source)}</td><td>${escapeHtml(audience)}</td><td>${formatBytes(meeting.sizeBytes)}</td><td>${escapeHtml(new Date(meeting.createdAt).toLocaleString())}</td><td><button class="danger mini-delete" data-meeting-id="${escapeHtml(meeting.id)}" data-meeting-title="${escapeHtml(meeting.title)}" type="button">Delete</button></td></tr>`;
 }
 
+
+function renderCitationAnchor(citation: { segmentId: string; startMs: number }): string {
+  return `<a class="seek-link" data-start-ms="${String(citation.startMs)}" href="#${escapeHtml(citation.segmentId)}">${formatTime(citation.startMs)}</a>`;
+}
+
+function renderSummaryForMeeting(meeting: PrototypeMeeting): string {
+  const summary = meeting.summary;
+  if (summary === undefined) return `<div class="intel-stack"><section><h2>Executive summary</h2><p>No summary yet. Process the recording to generate cited meeting intelligence.</p></section><section><h2>Action items</h2><p class="mini">No checkbox action items yet. They will appear here after summary generation.</p></section><section><h2>Decisions</h2><p class="mini">No decisions detected yet.</p></section><section><h2>Risks / blockers</h2><p class="mini">No risks detected yet.</p></section><section><h2>Follow-up draft</h2><p class="mini">Follow-up email draft will appear after transcription and summary.</p></section><section class="ask-box"><h2>Ask this meeting</h2><p class="mini">Ask Meeting becomes useful after transcript processing. If a transcript exists, it answers locally with timestamp citations.</p><div class="ask-row"><input id="askQuestion" placeholder="Ask about objections, decisions, next steps..." /><button id="askButton" class="secondary" type="button">Ask</button></div><div id="askAnswer" class="answer-box mini"></div></section></div>`;
+  const compatibilitySummary: Partial<typeof summary> = summary;
+  const risks = compatibilitySummary.risks ?? [];
+  const openQuestions = compatibilitySummary.openQuestions ?? [];
+  const followUpDraft = compatibilitySummary.followUpDraft;
+  const actionItems = summary.actionItems.length === 0 ? `<p class="mini">No action items detected yet. Add timestamped action notes or reprocess after correcting transcript text.</p>` : summary.actionItems.map((item, index) => {
+    const compatibilityItem: Partial<typeof item> = item;
+    const actionId = compatibilityItem.id ?? `legacy_${String(index)}`;
+    const priority = compatibilityItem.priority ?? "medium";
+    const dueDate = compatibilityItem.dueDate === undefined ? "No due date" : compatibilityItem.dueDate;
+    const completed = compatibilityItem.completed ?? false;
+    return `<li class="task-item ${completed ? "done" : ""}"><label class="task-check"><input class="action-toggle" data-action-id="${escapeHtml(actionId)}" type="checkbox" ${completed ? "checked" : ""} /><span><strong>${escapeHtml(speakerDisplayName(item.owner))}</strong> — ${escapeHtml(item.task)} <small>${escapeHtml(priority)} priority · ${escapeHtml(dueDate)} · ${renderCitationAnchor(item.citation)}</small></span></label></li>`;
+  }).join("");
+  const followUpHtml = followUpDraft === undefined ? `<p class="mini">Follow-up draft will appear after reprocessing this meeting.</p>` : `<div class="followup"><h3>${escapeHtml(followUpDraft.subject)}</h3><pre>${escapeHtml(followUpDraft.body)}</pre><p class="mini">Evidence: ${renderCitationAnchor(followUpDraft.citation)}</p><button class="secondary copy-followup" type="button">Copy follow-up</button></div>`;
+  return `<div class="intel-stack"><section><h2>Executive summary</h2><p>${escapeHtml(summary.tldr.text)} ${renderCitationAnchor(summary.tldr.citation)}</p></section><section><h2>Action items</h2><ul class="task-list">${actionItems}</ul></section><section><h2>Key points</h2><ul>${summary.keyPoints.map((point) => `<li>${escapeHtml(point.text)} ${renderCitationAnchor(point.citation)}</li>`).join("")}</ul></section><section><h2>Decisions</h2><ul>${summary.decisions.length === 0 ? "<li>No explicit decisions detected.</li>" : summary.decisions.map((decision) => `<li>${escapeHtml(decision.text)} ${renderCitationAnchor(decision.citation)}</li>`).join("")}</ul></section><section><h2>Risks / blockers</h2><ul>${risks.length === 0 ? "<li>No major risks detected.</li>" : risks.map((risk) => `<li>${escapeHtml(risk.text)} ${renderCitationAnchor(risk.citation)}</li>`).join("")}</ul></section><section><h2>Open questions</h2><ul>${openQuestions.length === 0 ? "<li>No open questions detected.</li>" : openQuestions.map((question) => `<li>${escapeHtml(question.text)} ${renderCitationAnchor(question.citation)}</li>`).join("")}</ul></section><section><h2>Follow-up draft</h2>${followUpHtml}</section><section class="ask-box"><h2>Ask this meeting</h2><p class="mini">Local cited Q&A over this transcript. It does not call an external LLM.</p><div class="ask-row"><input id="askQuestion" placeholder="Ask about objections, decisions, next steps..." /><button id="askButton" class="secondary" type="button">Ask</button></div><div id="askAnswer" class="answer-box mini"></div></section></div>`;
+}
 @Controller()
 export class PrototypeController {
   @Get("/library")
@@ -206,6 +308,34 @@ export class PrototypeController {
     const deleted = await deletePrototypeMeeting(id);
     if (!deleted) throw new HttpException("Meeting not found", HttpStatus.NOT_FOUND);
     return { ok: true, libraryUrl: "/library" };
+  }
+
+  @Get("/api/meetings/:id/status")
+  async meetingStatus(@Param("id") id: string): Promise<ProcessStatusPayload> {
+    const meeting = await getPrototypeMeeting(id);
+    if (meeting === undefined) throw new HttpException("Meeting not found", HttpStatus.NOT_FOUND);
+    return processStatusFor(meeting);
+  }
+
+  @Post("/api/meetings/:id/action-items/:actionId")
+  async updateActionItem(@Param("id") id: string, @Param("actionId") actionId: string, @Body() body: ActionItemStatusBody): Promise<{ ok: true; completed: boolean }> {
+    const meeting = await getPrototypeMeeting(id);
+    if (meeting === undefined) throw new HttpException("Meeting not found", HttpStatus.NOT_FOUND);
+    if (meeting.summary === undefined) throw new HttpException("Summary not found", HttpStatus.NOT_FOUND);
+    const actionItems = meeting.summary.actionItems.map((item) => item.id === actionId ? { ...item, completed: body.completed === true } : item);
+    if (actionItems.every((item, index) => item === meeting.summary?.actionItems[index])) throw new HttpException("Action item not found", HttpStatus.NOT_FOUND);
+    const updated: PrototypeMeeting = { ...meeting, summary: { ...meeting.summary, actionItems } };
+    await updatePrototypeMeeting(updated);
+    return { ok: true, completed: body.completed === true };
+  }
+
+  @Post("/api/meetings/:id/ask")
+  async askMeeting(@Param("id") id: string, @Body() body: AskMeetingBody): Promise<{ answer: string; citations: Array<{ segmentId: string; startMs: number; endMs: number; text: string }> }> {
+    const meeting = await getPrototypeMeeting(id);
+    if (meeting === undefined) throw new HttpException("Meeting not found", HttpStatus.NOT_FOUND);
+    const question = normalizeQuestion(body.question);
+    if (question.length === 0) throw new HttpException("Question is required", HttpStatus.BAD_REQUEST);
+    return answerMeetingQuestion(meeting, question);
   }
   @Get("/meetings/:id/recording")
   async recording(@Param("id") id: string, @Headers("range") rangeHeader: string | undefined, @Res() response: ServerResponse): Promise<void> {
@@ -279,24 +409,12 @@ export class PrototypeController {
     processingMeetings.add(id);
     const processingMeeting: PrototypeMeeting = { ...meeting, status: "processing" };
     delete processingMeeting.processingError;
-    delete processingMeeting.transcript;
-    delete processingMeeting.summary;
-    try {
-      await updatePrototypeMeeting(processingMeeting);
-      const languageHint = body?.languageHint?.trim();
-      const transcript = await new LocalWhisperTranscriptionProvider().transcribe({ meetingId: processingMeeting.id, audioUrl: "/meetings/" + processingMeeting.id + "/recording", localMediaPath: processingMeeting.artifactPath, languageHint: languageHint === undefined || languageHint.length === 0 ? "en" : languageHint, speakerHints: { localUserName: processingMeeting.localUserName, microphone: processingMeeting.microphone, systemAudio: processingMeeting.systemAudio } });
-      const updated: PrototypeMeeting = { ...processingMeeting, status: "processed", transcript: transcript.segments, summary: summarizeWithCitations(transcript.segments) };
-      await updatePrototypeMeeting(updated);
-      return { meetingId: updated.id, status: updated.status, detailUrl: "/meetings/" + updated.id };
-    } catch (error) {
-      const message = error instanceof LocalWhisperUnavailableError ? error.message + " Configure MEETX_WHISPER_CLI_PATH, MEETX_WHISPER_MODEL_PATH, and MEETX_FFMPEG_PATH to process real audio." : error instanceof Error ? error.message : "Unknown transcription failure.";
-      const updated: PrototypeMeeting = { ...meeting, status: "processing_failed", processingError: message };
-      await updatePrototypeMeeting(updated);
-      return { meetingId: updated.id, status: updated.status, detailUrl: "/meetings/" + updated.id };
-    } finally {
-      processingMeetings.delete(id);
-    }
+    await updatePrototypeMeeting(processingMeeting);
+    const languageHint = body?.languageHint?.trim();
+    void runMeetingProcessing(id, languageHint === undefined || languageHint.length === 0 ? "en" : languageHint);
+    return { meetingId: processingMeeting.id, status: "processing", detailUrl: "/meetings/" + processingMeeting.id };
   }
+
   @Get("/meetings/:id")
   @Header("Content-Type", "text/html; charset=utf-8")
   async detail(@Param("id") id: string, @Headers("cookie") cookieHeader: string | undefined): Promise<string> {
@@ -314,7 +432,7 @@ export class PrototypeController {
     const mediaPlayerHtml = isAudioRecording ? `<audio id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/recording"></audio><p class="mini">Audio-only recording. Enable Screen video in the desktop recorder when you need playback with visuals. <a href="/meetings/${escapeHtml(meeting.id)}/download">Download raw recording</a>.</p>` : `<video id="meetingPlayer" controls preload="metadata" src="/meetings/${escapeHtml(meeting.id)}/playback"></video><p class="mini"><a href="/meetings/${escapeHtml(meeting.id)}/playback">Open MP4 playback file</a> · <a href="/meetings/${escapeHtml(meeting.id)}/download">Download raw WebM</a>${repairedCopyHtml}</p>`;
     const transcriptHtml = meeting.transcript === undefined ? `<p>No real transcript yet. Click Process recording. If Whisper/FFmpeg are not configured, Meet-X will show setup instructions instead of fake transcript text.</p>` : meeting.transcript.map((segment) => `<article class="segment seekable-segment" data-start-ms="${String(segment.startMs)}" id="${escapeHtml(segment.segmentId)}"><div><strong>${escapeHtml(speakerDisplayName(segment.speakerId))}</strong><span>${formatTime(segment.startMs)}-${formatTime(segment.endMs)}</span></div><p>${escapeHtml(segment.text)}</p><small>${String(segment.words.length)} words - ${escapeHtml(segment.language)}</small></article>`).join("");
     const notesHtml = meeting.notes.length === 0 ? `<p>No timestamped notes yet. Play the recording, add a note, and Meet-X will save the current timestamp.</p>` : meeting.notes.sort((left, right) => left.timestampMs - right.timestampMs).map((note) => `<article class="segment"><div><strong>${escapeHtml(note.kind)}</strong><a class="seek-link" data-start-ms="${String(note.timestampMs)}" href="#">${formatTime(note.timestampMs)}</a></div><p>${escapeHtml(note.text)}</p><small>${escapeHtml(new Date(note.createdAt).toLocaleString())}</small></article>`).join("");
-    const summaryHtml = meeting.summary === undefined ? `<p>No summary yet. Summary is generated only after real transcription succeeds.</p>` : `<p><strong>Overview:</strong> ${escapeHtml(meeting.summary.tldr.text)} <a class="seek-link" data-start-ms="${String(meeting.summary.tldr.citation.startMs)}" href="#${escapeHtml(meeting.summary.tldr.citation.segmentId)}">${formatTime(meeting.summary.tldr.citation.startMs)}</a></p><h2>Key points</h2><ul>${meeting.summary.keyPoints.map((point) => `<li>${escapeHtml(point.text)} <a class="seek-link" data-start-ms="${String(point.citation.startMs)}" href="#${escapeHtml(point.citation.segmentId)}">${formatTime(point.citation.startMs)}</a></li>`).join("")}</ul><h2>Decisions</h2><ul>${meeting.summary.decisions.map((decision) => `<li>${escapeHtml(decision.text)} <a class="seek-link" data-start-ms="${String(decision.citation.startMs)}" href="#${escapeHtml(decision.citation.segmentId)}">${formatTime(decision.citation.startMs)}</a></li>`).join("")}</ul><h2>Action items / next steps</h2><ul>${meeting.summary.actionItems.map((item) => `<li><strong>${escapeHtml(speakerDisplayName(item.owner))}</strong>: ${escapeHtml(item.task)} <a class="seek-link" data-start-ms="${String(item.citation.startMs)}" href="#${escapeHtml(item.citation.segmentId)}">${formatTime(item.citation.startMs)}</a></li>`).join("")}</ul>`;
+    const summaryHtml = renderSummaryForMeeting(meeting);
     const isProcessing = meeting.status === "processing" && processingMeetings.has(meeting.id);
     const visibleStatus = meeting.status === "processing" && !isProcessing ? "processing_interrupted" : meeting.status;
     const visibleStatusText = visibleStatus === "processing_interrupted" ? "processing interrupted" : visibleStatus.replaceAll("_", " ");
@@ -322,9 +440,18 @@ export class PrototypeController {
     const processButtonHtml = '<button id="processButton" class="secondary"' + (isProcessing ? ' disabled' : '') + '>' + (isProcessing ? 'Processing...' : 'Process recording') + '</button>';
     const deleteButtonHtml = '<button id="deleteButton" class="danger" type="button"' + (isProcessing ? ' disabled' : '') + '>Delete recording</button>';
     const processStatusText = meeting.status === "processing" && !isProcessing ? "Processing was interrupted or the API restarted. Click Process recording to retry; existing transcript and summary will be kept until a new result is ready." : isProcessing ? "Whisper is processing this recording. You can leave this page open; Meet-X will not reload the player." : "";
-    return renderSaasShell({ title: meeting.title, active: "library", session, body: `<section class="card"><p><span id="meetingStatus" data-status="${visibleStatus}" class="${visibleStatusClass}">${escapeHtml(visibleStatusText)}</span> - ${formatBytes(meeting.sizeBytes)} - ${escapeHtml(new Date(meeting.createdAt).toLocaleString())}</p>${metadataHtml}${metadataEditorHtml}${mediaPlayerHtml}<details class="card subtle" open><summary><strong>Timestamped notes</strong></summary><div class="setting-row"><div><h3>Add note at current time</h3><p class="mini">Use this for reactions, questions, decisions, or action items while reviewing playback.</p></div><div><label>Note type</label><select id="noteKind"><option value="note">Note</option><option value="question">Question</option><option value="decision">Decision</option><option value="action">Action item</option></select><label>Note</label><textarea id="noteText" placeholder="Add a timestamped note..."></textarea><p><button id="saveNoteButton" class="secondary" type="button">Save note</button></p><p id="noteStatus" class="mini"></p></div></div><div>${notesHtml}</div></details><div class="setting-row"><div><h3>Transcription language</h3><p class="mini">Choose English or Hindi for reliable results. Auto detection is experimental and rejects other detected languages.</p></div><div><select id="languageHint"><option value="en" selected>English - recommended</option><option value="hi">Hindi</option><option value="auto">Auto detect - experimental</option></select></div></div><p>${processButtonHtml} ${deleteButtonHtml} <a class="button" href="/library">Back to library</a></p><p id="processStatus">${escapeHtml(processStatusText)}</p></section>${failureHtml}<section class="two"><div class="card"><h2>Summary</h2>${summaryHtml}</div><div class="card"><h2>Transcript</h2>${transcriptHtml}</div></section><script>const player = document.getElementById("meetingPlayer"); document.querySelectorAll(".seek-link,.seekable-segment").forEach((element) => { element.addEventListener("click", (event) => { const raw = element.getAttribute("data-start-ms"); if (!raw || !player) { return; } event.preventDefault(); player.currentTime = Number(raw) / 1000; player.play().catch(() => undefined); }); }); document.getElementById("saveNoteButton")?.addEventListener("click", async () => { const status = document.getElementById("noteStatus"); const text = document.getElementById("noteText").value; status.textContent = "Saving note..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind: document.getElementById("noteKind").value, timestampMs: Math.floor((player?.currentTime || 0) * 1000) }) }); if (!response.ok) { status.textContent = "Could not save note."; return; } window.location.reload(); }); document.getElementById("saveMetadataButton")?.addEventListener("click", async () => { const status = document.getElementById("metadataStatus"); status.textContent = "Saving metadata..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: document.getElementById("editTitle").value, audience: document.getElementById("editAudience").value, meetingUrl: document.getElementById("editMeetingUrl").value, sourceApp: document.getElementById("editSourceApp").value }) }); if (!response.ok) { status.textContent = "Could not save metadata."; return; } window.location.reload(); }); const processButton = document.getElementById("processButton"); processButton?.addEventListener("click", async () => { const status = document.getElementById("processStatus"); processButton.disabled = true; processButton.textContent = "Processing..."; const badge = document.getElementById("meetingStatus"); if (badge) { badge.textContent = "processing"; badge.dataset.status = "processing"; badge.className = "status blue"; } status.textContent = "Whisper is processing this recording. You can leave this page safely."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/process", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ languageHint: document.getElementById("languageHint")?.value || "en" }) }); if (!response.ok) { status.textContent = "Could not start processing."; processButton.disabled = false; processButton.textContent = "Process recording"; return; } const payload = await response.json(); if (payload.status === "processing") { status.textContent = "This recording is already processing. Meet-X will not reload the player; check back from the library or click Process later."; return; } if (payload.status === "processed") { status.textContent = "Processing finished. Refresh manually when you are done watching to load the transcript and summary."; processButton.textContent = "Processed"; } else { status.textContent = "Processing ended with status: " + payload.status + ". Refresh manually when you are done watching."; processButton.disabled = false; processButton.textContent = "Process recording"; } }); document.getElementById("deleteButton")?.addEventListener("click", async () => { const status = document.getElementById("processStatus"); if (!confirm("Delete this recording? This removes the local media file, transcript, and summary from this prototype.")) { return; } status.textContent = "Deleting recording..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/delete", { method: "POST" }); if (!response.ok) { status.textContent = "Delete failed."; return; } window.location.href = "/library"; });</script>` });
+    return renderSaasShell({ title: meeting.title, active: "library", session, body: `<section class="card"><p><span id="meetingStatus" data-status="${visibleStatus}" class="${visibleStatusClass}">${escapeHtml(visibleStatusText)}</span> - ${formatBytes(meeting.sizeBytes)} - ${escapeHtml(new Date(meeting.createdAt).toLocaleString())}</p>${metadataHtml}${metadataEditorHtml}${mediaPlayerHtml}<details class="card subtle" open><summary><strong>Timestamped notes</strong></summary><div class="setting-row"><div><h3>Add note at current time</h3><p class="mini">Use this for reactions, questions, decisions, or action items while reviewing playback.</p></div><div><label>Note type</label><select id="noteKind"><option value="note">Note</option><option value="question">Question</option><option value="decision">Decision</option><option value="action">Action item</option></select><label>Note</label><textarea id="noteText" placeholder="Add a timestamped note..."></textarea><p><button id="saveNoteButton" class="secondary" type="button">Save note</button></p><p id="noteStatus" class="mini"></p></div></div><div>${notesHtml}</div></details><div class="setting-row"><div><h3>Transcription language</h3><p class="mini">Choose English or Hindi for reliable results. Auto detection is experimental and rejects other detected languages.</p></div><div><select id="languageHint"><option value="en" selected>English - recommended</option><option value="hi">Hindi</option><option value="auto">Auto detect - experimental</option></select></div></div><p>${processButtonHtml} ${deleteButtonHtml} <a class="button" href="/library">Back to library</a></p><p id="processStatus">${escapeHtml(processStatusText)}</p></section>${failureHtml}<section class="two"><div class="card"><h2>Summary</h2>${summaryHtml}</div><div class="card"><h2>Transcript</h2>${transcriptHtml}</div></section><script>const player = document.getElementById("meetingPlayer"); document.querySelectorAll(".seek-link,.seekable-segment").forEach((element) => { element.addEventListener("click", (event) => { const raw = element.getAttribute("data-start-ms"); if (!raw || !player) { return; } event.preventDefault(); player.currentTime = Number(raw) / 1000; player.play().catch(() => undefined); }); }); document.getElementById("saveNoteButton")?.addEventListener("click", async () => { const status = document.getElementById("noteStatus"); const text = document.getElementById("noteText").value; status.textContent = "Saving note..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind: document.getElementById("noteKind").value, timestampMs: Math.floor((player?.currentTime || 0) * 1000) }) }); if (!response.ok) { status.textContent = "Could not save note."; return; } window.location.reload(); }); document.getElementById("saveMetadataButton")?.addEventListener("click", async () => { const status = document.getElementById("metadataStatus"); status.textContent = "Saving metadata..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/metadata", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: document.getElementById("editTitle").value, audience: document.getElementById("editAudience").value, meetingUrl: document.getElementById("editMeetingUrl").value, sourceApp: document.getElementById("editSourceApp").value }) }); if (!response.ok) { status.textContent = "Could not save metadata."; return; } window.location.reload(); }); const processButton = document.getElementById("processButton"); processButton?.addEventListener("click", async () => { const status = document.getElementById("processStatus"); processButton.disabled = true; processButton.textContent = "Processing..."; const badge = document.getElementById("meetingStatus"); if (badge) { badge.textContent = "processing"; badge.dataset.status = "processing"; badge.className = "status blue"; } status.textContent = "Whisper is processing this recording. You can leave this page safely."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/process", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ languageHint: document.getElementById("languageHint")?.value || "en" }) }); if (!response.ok) { status.textContent = "Could not start processing."; processButton.disabled = false; processButton.textContent = "Process recording"; return; } const payload = await response.json(); if (payload.status === "processing") { status.textContent = "This recording is already processing. Meet-X will not reload the player; check back from the library or click Process later."; return; } if (payload.status === "processed") { status.textContent = "Processing finished. Refresh manually when you are done watching to load the transcript and summary."; processButton.textContent = "Processed"; } else { status.textContent = "Processing ended with status: " + payload.status + ". Refresh manually when you are done watching."; processButton.disabled = false; processButton.textContent = "Process recording"; } }); document.getElementById("deleteButton")?.addEventListener("click", async () => { const status = document.getElementById("processStatus"); if (!confirm("Delete this recording? This removes the local media file, transcript, and summary from this prototype.")) { return; } status.textContent = "Deleting recording..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/delete", { method: "POST" }); if (!response.ok) { status.textContent = "Delete failed."; return; } window.location.href = "/library"; }); document.querySelectorAll(".action-toggle").forEach((checkbox) => { checkbox.addEventListener("change", async () => { const actionId = checkbox.getAttribute("data-action-id"); if (!actionId) { return; } const checked = checkbox.checked === true; checkbox.closest(".task-item")?.classList.toggle("done", checked); const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/action-items/" + encodeURIComponent(actionId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed: checked }) }); if (!response.ok) { checkbox.checked = !checked; checkbox.closest(".task-item")?.classList.toggle("done", !checked); } }); }); document.querySelector(".copy-followup")?.addEventListener("click", async (event) => { const text = document.querySelector(".followup pre")?.textContent || ""; await navigator.clipboard?.writeText(text).catch(() => undefined); event.target.textContent = "Copied"; }); document.getElementById("askButton")?.addEventListener("click", async () => { const box = document.getElementById("askAnswer"); const question = document.getElementById("askQuestion")?.value || ""; box.textContent = "Thinking over the transcript..."; const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }); if (!response.ok) { box.textContent = "Ask Meeting needs a processed transcript first."; return; } const payload = await response.json(); box.innerHTML = "<p>" + payload.answer.replace(/[&<>]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[char])) + "</p>" + payload.citations.map((citation) => "<p><a class=\\"seek-link dynamic-seek\\" href=\\"#" + citation.segmentId + "\\" data-start-ms=\\"" + citation.startMs + "\\">" + Math.floor(citation.startMs / 1000) + "s</a> — " + citation.text.replace(/[&<>]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[char])) + "</p>").join(""); document.querySelectorAll(".dynamic-seek").forEach((element) => element.addEventListener("click", (event) => { event.preventDefault(); const raw = element.getAttribute("data-start-ms"); if (raw && player) { player.currentTime = Number(raw) / 1000; player.play().catch(() => undefined); } })); }); if (document.getElementById("meetingStatus")?.dataset.status === "processing") { window.setInterval(async () => { const response = await fetch("/api/meetings/${escapeHtml(meeting.id)}/status"); if (!response.ok) return; const payload = await response.json(); const badge = document.getElementById("meetingStatus"); const status = document.getElementById("processStatus"); if (badge) { badge.textContent = payload.status.replaceAll("_", " "); badge.dataset.status = payload.status; badge.className = payload.status === "processing_failed" || payload.status === "processing_interrupted" ? "status warn" : payload.status === "processed" ? "status" : "status blue"; } if (status) { status.textContent = payload.status === "processing" ? "Processing in background. Transcript segments ready: " + payload.transcriptCount + "." : payload.status === "processed" ? "Processing complete. Refresh when convenient to load the new intelligence panel." : payload.processingError || status.textContent; } }, 5000); }</script>` });
   }
 }
+
+
+
+
+
+
+
+
+
 
 
 
