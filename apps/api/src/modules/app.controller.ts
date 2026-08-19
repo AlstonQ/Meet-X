@@ -1,4 +1,4 @@
-﻿import { readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import { Controller, Get, Header, Headers, Res } from "@nestjs/common";
@@ -69,7 +69,10 @@ self.addEventListener("fetch", () => undefined);`;
     const processed = meetings.filter((meeting) => meeting.status === "processed").length;
     const needsProcessing = meetings.filter((meeting) => meeting.status === "uploaded" || meeting.status === "processing_failed").length;
     const latestRows = meetings.slice(0, 5).map((meeting) => `<tr><td><a href="/meetings/${escapeHtml(meeting.id)}">${escapeHtml(meeting.title)}</a><div class="mini">${escapeHtml(meeting.sourceApp ?? "Manual capture")}</div></td><td><span class="${statusClass(meeting.status)}">${escapeHtml(meeting.status.replaceAll("_", " "))}</span></td><td>${escapeHtml(new Date(meeting.createdAt).toLocaleString())}</td></tr>`).join("");
-    const body = `<section class="grid"><div class="card"><h2>Total meetings</h2><div class="metric">${String(meetings.length)}</div><p>Recordings saved in this workspace.</p></div><div class="card"><h2>Processed</h2><div class="metric">${String(processed)}</div><p>Meetings with transcript and summary.</p></div><div class="card"><h2>Needs attention</h2><div class="metric">${String(needsProcessing)}</div><p>Recordings waiting for transcription or local setup.</p></div></section><section class="card"><h2>Recent meetings</h2><table><thead><tr><th>Meeting</th><th>Status</th><th>Created</th></tr></thead><tbody>${latestRows || '<tr><td colspan="3">No meetings yet. <a href="/recorder">Record your first meeting</a>.</td></tr>'}</tbody></table></section><section class="grid"><div class="card subtle"><h2>PWA shell</h2><p>Install Meet-X for a focused app window, quick launch, and access to shared live transcripts.</p><span class="status blue">available</span></div><div class="card subtle"><h2>Browser recorder</h2><p>Records selected tabs/windows with shared audio. Best for browser-based Meet, Zoom, and Teams.</p><span class="status">active</span></div><div class="card subtle"><h2>Desktop agent</h2><p>Records Windows system audio and microphone, with optional primary-screen video and shared live transcription.</p><span class="status">active</span></div></section>`;
+    const actionItems = meetings.flatMap((meeting) => meeting.summary?.actionItems ?? []);
+    const openActions = actionItems.filter((item) => !item.completed).length;
+    const accountNames = new Set(meetings.map((meeting) => meeting.sourceApp ?? meeting.audience[0] ?? "Manual recordings"));
+    const body = `<section class="grid"><div class="card"><h2>Total meetings</h2><div class="metric">${String(meetings.length)}</div><p>Recordings saved in this workspace.</p></div><div class="card"><h2>Processed</h2><div class="metric">${String(processed)}</div><p>Meetings with transcript and summary.</p></div><div class="card"><h2>Needs attention</h2><div class="metric">${String(needsProcessing)}</div><p>Recordings waiting for transcription or local setup.</p></div></section><section class="card"><h2>Recent meetings</h2><table><thead><tr><th>Meeting</th><th>Status</th><th>Created</th></tr></thead><tbody>${latestRows || '<tr><td colspan="3">No meetings yet. <a href="/recorder">Record your first meeting</a>.</td></tr>'}</tbody></table></section><section class="grid"><div class="card subtle"><h2>My action items</h2><div class="metric">${String(openActions)}</div><p>Open follow-ups generated from meeting intelligence.</p><a class="button secondary" href="/actions">Review tasks</a></div><div class="card subtle"><h2>Accounts</h2><div class="metric">${String(accountNames.size)}</div><p>Local account memory grouped from meetings and audiences.</p><a class="button secondary" href="/accounts">View accounts</a></div><div class="card subtle"><h2>Ask Meeting</h2><div class="metric">Q&A</div><p>Open any processed meeting and ask cited questions over the transcript.</p><a class="button secondary" href="/library?status=processed">Find processed</a></div></section><section class="grid"><div class="card subtle"><h2>PWA shell</h2><p>Install Meet-X for a focused app window, quick launch, and access to shared live transcripts.</p><span class="status blue">available</span></div><div class="card subtle"><h2>Browser recorder</h2><p>Records selected tabs/windows with shared audio. Best for browser-based Meet, Zoom, and Teams.</p><span class="status">active</span></div><div class="card subtle"><h2>Desktop agent</h2><p>Records Windows system audio and microphone, with optional primary-screen video and shared live transcription.</p><span class="status">active</span></div></section>`;
     return renderSaasShell({ title: "Dashboard", active: "dashboard", session, body });
   }
 
@@ -93,5 +96,7 @@ document.getElementById("saveSettingsButton")?.addEventListener("click", () => {
     return renderSaasShell({ title: "Billing", active: "billing", session, body });
   }
 }
+
+
 
 

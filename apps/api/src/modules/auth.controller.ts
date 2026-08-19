@@ -63,7 +63,7 @@ export function requirePrototypeSession(cookieHeader: string | undefined): Proto
   };
 }
 
-export function renderSaasShell(input: { title: string; active: "dashboard" | "library" | "recorder" | "settings" | "billing"; session: PrototypeSession; body: string }): string {
+export function renderSaasShell(input: { title: string; active: "dashboard" | "library" | "actions" | "accounts" | "recorder" | "settings" | "billing"; session: PrototypeSession; body: string }): string {
   const navItem = (href: string, label: string, active: boolean): string => `<a class="nav ${active ? "active" : ""}" href="${href}">${label}</a>`;
   return `<!doctype html>
 <html lang="en">
@@ -138,6 +138,13 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
       .followup pre { white-space:pre-wrap; word-break:break-word; border-radius:18px; padding:14px; background:rgba(0,0,0,.045); color:#424245; font:inherit; }
       .ask-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; }
       .answer-box { margin-top:12px; border:1px solid var(--line); border-radius:18px; padding:12px; background:rgba(255,255,255,.58); min-height:54px; }
+      .insight-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+      .account-card { border:1px solid var(--line); border-radius:24px; padding:18px; background:rgba(255,255,255,.66); }
+      .account-card h2 { font-size:20px; }
+      .muted-pill { display:inline-flex; margin:0 8px 8px 0; border-radius:999px; padding:6px 10px; background:rgba(0,0,0,.055); color:var(--muted); font-size:12px; font-weight:800; }
+      .priority-high { color:#b42318; }
+      .priority-medium { color:#946200; }
+      .priority-low { color:#147a5a; }
       @media (max-width: 1100px) { .topbar { grid-template-columns: 1fr; } .pill-row { min-width: 0; justify-content:flex-start; } }
       @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { display: none; } main { padding: 16px; } .grid, .two, .setting-row { grid-template-columns: 1fr; } h1 { font-size: clamp(26px, 8vw, 42px); -webkit-line-clamp: 4; } }
     </style>
@@ -149,6 +156,8 @@ export function renderSaasShell(input: { title: string; active: "dashboard" | "l
         <div class="workspace"><strong>${escapeHtml(input.session.organization)}</strong><small>${escapeHtml(input.session.email)}</small></div>
         ${navItem("/app", "Dashboard", input.active === "dashboard")}
         ${navItem("/library", "Meeting library", input.active === "library")}
+        ${navItem("/actions", "My action items", input.active === "actions")}
+        ${navItem("/accounts", "Accounts", input.active === "accounts")}
         ${navItem("/recorder", "Recorder", input.active === "recorder")}
         ${navItem("/settings", "Settings", input.active === "settings")}
         ${navItem("/billing", "Billing", input.active === "billing")}
@@ -252,6 +261,7 @@ export class AuthController {
     return "";
   }
 }
+
 
 
 
